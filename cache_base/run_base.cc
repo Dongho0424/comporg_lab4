@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
   }
   
   /////////////////////////////////////////////////////////////////////////////
-  // TODO: compute the number of sets based on the input arguments 
+  // \TODO: compute the number of sets based on the input arguments 
   //       and pass it to the cache instance
   /////////////////////////////////////////////////////////////////////////////
   int num_assoc = atoi(argv[3]);

@@ -38,8 +38,13 @@ public:
     int m_assoc;             // number of cache blocks in a cache set
 
   ///////////////////////////////////////////////////////////////////
-  // TODO: Maintain the LRU stack for this set (e.g. list/vector/array/... of cache_entry_c... or any other appropriate way)
+  // \TODO: Maintain the LRU stack for this set (e.g. list/vector/array/... of cache_entry_c... or any other appropriate way)
   ///////////////////////////////////////////////////////////////////
+
+  // MRU: front
+  // LRU: back
+  // It is intially empty
+  std::list<cache_entry_c*> m_lru_stack;
 };
 
 ///////////////////////////////////////////////////////////////////

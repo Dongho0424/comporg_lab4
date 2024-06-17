@@ -97,7 +97,7 @@ cache_base_c::~cache_base_c() {
  */
 bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
   ////////////////////////////////////////////////////////////////////
-  // TODO: Write the code to implement this function
+  // \TODO: Write the code to implement this function
   ////////////////////////////////////////////////////////////////////
   
   m_num_accesses++;
@@ -105,7 +105,7 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
   int tag = address / (m_num_sets * m_line_size);
   int set_index = (address / m_line_size) % m_num_sets;
 
-  cache_set_c *set = m_set_list[set_index];
+  cache_set_c* set = m_set_list[set_index];
   // Check if there is a cache hit
   bool hit = false;
   int hit_index = -1;
@@ -125,6 +125,15 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
       m_num_writes++;
       set->m_entry[hit_index].m_dirty = true;
     }
+
+    // update LRU
+    // just hit cache line -> MRU
+    set->m_lru_stack.remove(&set->m_entry[hit_index]);
+    set->m_lru_stack.push_front(&set->m_entry[hit_index]);
+    // cache_entry_c tmp = set->m_entry[hit_index];
+    // set->m_lru_stack.remove(&tmp);
+    // set->m_lru_stack.push_front(&tmp);  
+
   } else { // Cache miss
     m_num_misses++;
 
@@ -135,34 +144,37 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
 
     // Cache fill when cache miss (read miss fill, write miss fill, IF miss fill)
     if (is_fill) {
-      // Found an empty cache entry
       for (int i = 0; i < set->m_assoc; ++i) {
+        // Found an empty cache entry 
         if (!set->m_entry[i].m_valid) {
           set->m_entry[i].m_valid = true;
           // A write miss allocates a cacheline in the cache with a dirty flag.
           set->m_entry[i].m_dirty = (access_type == WRITE);
           set->m_entry[i].m_tag = tag;
+
+          // update LRU
+          // just filled cache line -> MRU
+          set->m_lru_stack.push_front(&set->m_entry[i]);
           return hit;
         }
       }
 
       // No empty cache entry found
       // Evict a cache line with LRU policy and fill the new one
-      
-      // for (int i = 0; i < set->m_assoc; ++i) {
-        
-      // }
-      // temporarily just evict
+      int evict_index = -1;
+      if (set->m_lru_stack.size() > 0) {
+        evict_index = set->m_lru_stack.back() - set->m_entry;
+      } 
 
-      // write miss && dirty => Write Back cache line to memory
-      if (set->m_entry[0].m_dirty) {
+      // Evict and Writeback
+      if (set->m_entry[evict_index].m_dirty) {
         m_num_writebacks++;
       }
 
-      // update with new cache line
-      set->m_entry[0].m_valid = true;
-      set->m_entry[0].m_dirty = (access_type == WRITE);
-      set->m_entry[0].m_tag = tag;
+      // Update with new cache entry
+      set->m_entry[evict_index].m_valid = true;
+      set->m_entry[evict_index].m_dirty = (access_type == WRITE);
+      set->m_entry[evict_index].m_tag = tag;    
     }
   }
 
