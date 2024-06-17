@@ -17,6 +17,10 @@
 #include <iostream>
 #include <iomanip>
 
+///////////////////////////////////////////////////////////////////
+// cache_set_c 
+///////////////////////////////////////////////////////////////////
+
 /**
  * This allocates an "assoc" number of cache entries per a set
  * @param assoc - number of cache entries in a set
@@ -31,6 +35,16 @@ cache_set_c::~cache_set_c() {
   delete[] m_entry;
 }
 
+///////////////////////////////////////////////////////////////////
+// cache_base_c 
+// 
+// <set_list>
+// set0 : cache_set0 [cache_entry00, cache_entry01, ...]
+// set1 : cache_set1 [cache_entry10, cache_entry11, ...]
+// set1 : cache_set2 [cache_entry20, cache_entry21, ...]
+//
+///////////////////////////////////////////////////////////////////
+
 /**
  * This constructor initializes a cache structure based on the cache parameters.
  * @param name - cache name; use any name you want
@@ -38,23 +52,23 @@ cache_set_c::~cache_set_c() {
  * @param assoc - number of cache entries in a set
  * @param line_size - cache block (line) size in bytes
  *
- * @note You do not have to modify this (other than for debugging purposes).
+ * @note Test Note.
  */
 cache_base_c::cache_base_c(std::string name, int num_sets, int assoc, int line_size) {
   m_name = name;
   m_num_sets = num_sets;
   m_line_size = line_size;
 
-  m_set = new cache_set_c *[m_num_sets];
+  m_set_list = new cache_set_c *[m_num_sets];
 
   for (int ii = 0; ii < m_num_sets; ++ii) {
-    m_set[ii] = new cache_set_c(assoc);
+    m_set_list[ii] = new cache_set_c(assoc);
 
     // initialize tag/valid/dirty bits
     for (int jj = 0; jj < assoc; ++jj) {
-      m_set[ii]->m_entry[jj].m_valid = false;
-      m_set[ii]->m_entry[jj].m_dirty = false;
-      m_set[ii]->m_entry[jj].m_tag   = 0;
+      m_set_list[ii]->m_entry[jj].m_valid = false;
+      m_set_list[ii]->m_entry[jj].m_dirty = false;
+      m_set_list[ii]->m_entry[jj].m_tag   = 0;
     }
   }
 
@@ -68,8 +82,8 @@ cache_base_c::cache_base_c(std::string name, int num_sets, int assoc, int line_s
 
 // cache_base_c destructor
 cache_base_c::~cache_base_c() {
-  for (int ii = 0; ii < m_num_sets; ++ii) { delete m_set[ii]; }
-  delete[] m_set;
+  for (int ii = 0; ii < m_num_sets; ++ii) { delete m_set_list[ii]; }
+  delete[] m_set_list;
 }
 
 /** 
@@ -85,6 +99,74 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
   ////////////////////////////////////////////////////////////////////
   // TODO: Write the code to implement this function
   ////////////////////////////////////////////////////////////////////
+  
+  m_num_accesses++;
+
+  int tag = address / (m_num_sets * m_line_size);
+  int set_index = (address / m_line_size) % m_num_sets;
+
+  cache_set_c *set = m_set_list[set_index];
+  // Check if there is a cache hit
+  bool hit = false;
+  int hit_index = -1;
+
+  for (int i = 0; i < set->m_assoc; ++i) {
+    if (set->m_entry[i].m_valid && set->m_entry[i].m_tag == tag) {
+      hit = true;
+      hit_index = i;
+      break;
+    }
+  }
+
+  if (hit) { // Cache hit
+    m_num_hits++;
+    if (access_type == WRITE) {
+      // Write access
+      m_num_writes++;
+      set->m_entry[hit_index].m_dirty = true;
+    }
+  } else { // Cache miss
+    m_num_misses++;
+
+    // Write access
+    if (access_type == WRITE) {
+      m_num_writes++;
+    }
+
+    // Cache fill when cache miss (read miss fill, write miss fill, IF miss fill)
+    if (is_fill) {
+      // Found an empty cache entry
+      for (int i = 0; i < set->m_assoc; ++i) {
+        if (!set->m_entry[i].m_valid) {
+          set->m_entry[i].m_valid = true;
+          // A write miss allocates a cacheline in the cache with a dirty flag.
+          set->m_entry[i].m_dirty = (access_type == WRITE);
+          set->m_entry[i].m_tag = tag;
+          return hit;
+        }
+      }
+
+      // No empty cache entry found
+      // Evict a cache line with LRU policy and fill the new one
+      
+      // for (int i = 0; i < set->m_assoc; ++i) {
+        
+      // }
+      // temporarily just evict
+
+      // write miss && dirty => Write Back cache line to memory
+      if (set->m_entry[0].m_dirty) {
+        m_num_writebacks++;
+      }
+
+      // update with new cache line
+      set->m_entry[0].m_valid = true;
+      set->m_entry[0].m_dirty = (access_type == WRITE);
+      set->m_entry[0].m_tag = tag;
+    }
+  }
+
+  return hit;
 }
 
 /**
@@ -113,10 +195,10 @@ void cache_base_c::dump_tag_store(bool is_file) {
     os << "------------------------------" << "\n";
 
     for (int ii = 0; ii < m_num_sets; ii++) {
-      for (int jj = 0; jj < m_set[0]->m_assoc; jj++) {
-        os << "[" << (int)m_set[ii]->m_entry[jj].m_valid << ", ";
-        os << (int)m_set[ii]->m_entry[jj].m_dirty << ", ";
-        os << std::setw(10) << std::hex << m_set[ii]->m_entry[jj].m_tag << std::dec << "] ";
+      for (int jj = 0; jj < m_set_list[0]->m_assoc; jj++) {
+        os << "[" << (int)m_set_list[ii]->m_entry[jj].m_valid << ", ";
+        os << (int)m_set_list[ii]->m_entry[jj].m_dirty << ", ";
+        os << std::setw(10) << std::hex << m_set_list[ii]->m_entry[jj].m_tag << std::dec << "] ";
       }
       os << "\n";
     }

@@ -59,14 +59,14 @@ private:
   int m_num_sets;         // number of sets
   int m_line_size;        // cache line size
 
-  cache_set_c **m_set;    // cache data structure
+  cache_set_c **m_set_list;    // cache data structure
 
   // cache statistics
-  int m_num_accesses; 
-  int m_num_hits; 
-  int m_num_misses; 
-  int m_num_writes;
-  int m_num_writebacks;
+  int m_num_accesses; // everytime
+  int m_num_hits; // read, write, IF
+  int m_num_misses; // read, write, IF
+  int m_num_writes; // write access
+  int m_num_writebacks; // write miss && dirty
 };
 
 #endif // !__CACHE_BASE_H__ 

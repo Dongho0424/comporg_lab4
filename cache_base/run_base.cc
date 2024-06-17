@@ -40,8 +40,11 @@ int main(int argc, char** argv) {
   // TODO: compute the number of sets based on the input arguments 
   //       and pass it to the cache instance
   /////////////////////////////////////////////////////////////////////////////
-  int num_sets = 256; // example (NEED TO FIX)
-  cache_base_c* cc = new cache_base_c("L1", num_sets, atoi(argv[3]), atoi(argv[4]));
+  int num_assoc = atoi(argv[3]);
+  int num_line_size = atoi(argv[4]);
+  int cache_size = atoi(argv[2]);
+  int num_sets = cache_size / (num_assoc * num_line_size);
+  cache_base_c* cc = new cache_base_c("L1", num_sets, num_assoc, num_line_size);
 
   process_trace(cc, argv[1]);
   cc->print_stats();
