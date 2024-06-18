@@ -50,6 +50,7 @@ void memory_hierarchy_c::init(config_c& config) {
   ////////////////////////////////////////////////////////////////////
   
   // instantiate caches and main memory (e.g., DRAM)
+  // TODO: cache base 사용? L1U?
   m_dram = new simple_mem_c("DRAM", MEM_MC, config.get_memory_latency());
 
   if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::DRAM_ONLY)) {
@@ -73,6 +74,11 @@ bool memory_hierarchy_c::access(addr_t address, int access_type) {
   // TODO: Write the code to implement this function
   // Access the top-level memory component
   ////////////////////////////////////////////////////////////////////
+
+  if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::DRAM_ONLY)) {
+    return m_dram->access(req);
+  }
+  return false;
 }
 
 /**
@@ -89,7 +95,7 @@ mem_req_s* memory_hierarchy_c::create_mem_req(addr_t address, int access_type) {
   req->m_done = false;
   req->m_dirty = false;
 
-  //DEBUG("[MEM_H] Create REQ #%d %8lx @ %ld\n", req->m_id, req->m_addr, m_cycle);
+  // DEBUG("[MEM_H] Create REQ #%d %8lx @ %ld\n", req->m_id, req->m_addr, m_cycle);
   return req;
 }
 
@@ -136,6 +142,12 @@ void memory_hierarchy_c::process_done_req() {
   // Free done requests
   ////////////////////////////////////////////////////////////////////
   
+  for (auto it = m_in_flight_reqs.begin(); it != m_in_flight_reqs.end(); ++it) {
+    mem_req_s* req = *it;
+    if (req->m_done) {
+      free_mem_req(req);
+    }
+  }
 }
 
 /**
@@ -157,7 +169,8 @@ bool memory_hierarchy_c::is_wb_done() {
   // If there is no in-flight writeback requests for all the caches and
   // main memory, return true.
   ////////////////////////////////////////////////////////////////////
-
+  // return m_dram->m_in_flight_wb_queue->empty();
+  return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////

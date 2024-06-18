@@ -43,10 +43,18 @@ int main(int argc, char** argv) {
   for (auto it = q1->m_entry.begin(); it != q1->m_entry.end(); /**/) {
     mem_req_s* req = (*it);
 
-    if (req->m_addr == 10) { 
+    if (req->m_addr == 20) { 
       // should not advance the iterator because the iterator already points to the next after popping the request.
       q2->push(req);  // first push req to q2
+      mem_req_s* temp = new mem_req_s(100, 0);
+      q2->push(temp);  
       q1->pop(req);   // thn pop req from q1
+
+      auto it1 = q1->m_entry.begin();
+      mem_req_s* req1 = (*it1);
+      auto it2 = q1->m_entry.end();
+      mem_req_s* req2 = (*it2);
+      std::cout << "begin: " << req1->m_addr << "  end: " << req2->m_addr << "\n";
     } else {
       ++it; // if we did not pop, we advance the iterator.
     }

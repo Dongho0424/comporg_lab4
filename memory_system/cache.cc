@@ -77,6 +77,9 @@ void cache_c::configure_neighbors(cache_c* prev_i, cache_c* prev_d, cache_c* nex
  *
  */
 bool cache_c::fill(mem_req_s* req) {
+  req->m_rdy_cycle += m_latency;  // Add the intrinsic cache latency
+  m_fill_queue->push(req);        // Put the request into the fill_queue
+  return true;
 }
 
 /**
@@ -88,6 +91,9 @@ bool cache_c::fill(mem_req_s* req) {
  * a new ready cycle needs to be set for the request .
  */
 bool cache_c::access(mem_req_s* req) { 
+  req->m_rdy_cycle += m_latency;  // Add the intrinsic cache latency
+  m_in_queue->push(req);          // Put the request into the in_queue
+  return true;  // TODO: Hit or Miss?
 }
 
 /** 
@@ -99,6 +105,33 @@ bool cache_c::access(mem_req_s* req) {
  * 4. on a cache miss, put the current requests into out_queue
  */
 void cache_c::process_in_queue() {
+  // TODO: Implement this function
+  auto it = m_in_queue->m_entry.begin();
+  mem_req_s* req = (*it);
+  m_in_queue->pop(req);
+  
+  // Check if the cache has a hit or a miss
+  bool hit = cache_base_c::access(req->m_addr, req->m_type, 0);
+
+  // Cache hit
+  if (hit) {
+    if (m_level == 1) { // Forward the request to the processor
+      m_out_queue->push(req);
+    } else {
+      // Forward the request to the prev's fill_queue
+      // TODO: Is this correct? prev_i or prev_d?
+      if (m_prev_i != nullptr) {
+        m_prev_i->fill(req);
+      } else {
+        m_prev_d->fill(req);
+      }
+    }
+  // Cache miss
+  } else {
+    // Put the request into out_queue
+    m_out_queue->push(req);
+  }
+
 } 
 
 /** 
@@ -107,6 +140,16 @@ void cache_c::process_in_queue() {
  * CURRENT: There is no limit on the number of requests we can process in a cycle.
  */
 void cache_c::process_out_queue() {
+  // TODO: Implement this function
+  // while (!m_out_queue->empty()) {
+  //   mem_req_s* req = m_out_queue->front();
+  //   m_out_queue->pop();
+  //   if (m_next) {
+  //     m_next->access(req);  // Access the next level's cache
+  //   } else if (m_memory) {
+  //     m_memory->access(req);  // Access the main memory
+  //   }
+  // }
 }
 
 
@@ -116,6 +159,7 @@ void cache_c::process_out_queue() {
  */
 
 void cache_c::process_fill_queue() {
+  // TODO: Implement this function
 }
 
 /** 
@@ -124,6 +168,7 @@ void cache_c::process_fill_queue() {
  * CURRENT: There is no limit on the number of requests we can process in a cycle.
  */
 void cache_c::process_wb_queue() {
+  // TODO: Implement this function
 }
 
 /**
