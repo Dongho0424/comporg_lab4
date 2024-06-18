@@ -28,6 +28,11 @@
 cache_set_c::cache_set_c(int assoc) {
   m_entry = new cache_entry_c[assoc];
   m_assoc = assoc;
+
+  for (int i = 0; i < m_assoc; ++i) {
+    cache_entry_c* entry = &m_entry[i];
+    m_lru_stack.push_back(entry);
+  }
 }
 
 // cache_set_c destructor
@@ -155,6 +160,9 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
           // update LRU
           // just filled cache line -> MRU
           set->m_lru_stack.push_front(&set->m_entry[i]);
+          if (set->m_lru_stack.size() > set->m_assoc) {
+            set->m_lru_stack.pop_back();
+          }
           return hit;
         }
       }
@@ -175,6 +183,10 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
       set->m_entry[evict_index].m_valid = true;
       set->m_entry[evict_index].m_dirty = (access_type == WRITE);
       set->m_entry[evict_index].m_tag = tag;    
+
+      // update LRU
+      set->m_lru_stack.pop_back();
+      set->m_lru_stack.push_front(&set->m_entry[evict_index]);
     }
   }
 
