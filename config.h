@@ -13,15 +13,19 @@ public:
   int get_mem_hierarchy() const {return mem_hierarchy;}
   int is_single_request() const {return single_request;}
   
+  // L1 instruction cache
   int get_l1i_size() const {return l1i_size;}
   int get_l1i_assoc() const {return l1i_assoc;}
   int get_l1i_line_size() const {return l1i_line_size;}
   int get_l1i_latency() const {return l1i_latency;}
+
+  // L1 data cache
   int get_l1d_size() const {return l1d_size;}
   int get_l1d_assoc() const {return l1d_assoc;}
   int get_l1d_line_size() const {return l1d_line_size;}
   int get_l1d_latency() const {return l1d_latency;}
 
+  // L2 cache
   int get_l2_size() const {return l2_size;}
   int get_l2_assoc() const {return l2_assoc;}
   int get_l2_line_size() const {return l2_line_size;}

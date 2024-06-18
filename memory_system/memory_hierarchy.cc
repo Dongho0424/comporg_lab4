@@ -36,7 +36,12 @@ memory_hierarchy_c::memory_hierarchy_c(config_c& config) {
   if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::DRAM_ONLY)) {
     assert(m_dram && "main memory is not instantiated");
     m_dram->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
-  } 
+  } else if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) {
+    assert(m_dram && "main memory is not instantiated");
+    assert(m_l1d_cache && "l1d is not instantiated");
+    m_dram->set_done_func([&](mem_req_s *req) { m_l1d_cache->fill(req); }); 
+    m_l1d_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
+  }
 }
 
 /**
@@ -50,11 +55,15 @@ void memory_hierarchy_c::init(config_c& config) {
   ////////////////////////////////////////////////////////////////////
   
   // instantiate caches and main memory (e.g., DRAM)
-  // TODO: cache base 사용? L1U?
+  int l1d_num_sets = config.get_l1d_size() / (config.get_l1d_assoc() * config.get_l1d_line_size());
+  m_l1d_cache = new cache_c("L1D", MEM_L1, l1d_num_sets, config.get_l1d_assoc(), config.get_l1d_line_size(), config.get_l1d_latency());
   m_dram = new simple_mem_c("DRAM", MEM_MC, config.get_memory_latency());
 
   if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::DRAM_ONLY)) {
     m_dram->configure_neighbors(nullptr);
+  } else if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) {
+    m_dram->configure_neighbors(m_l1d_cache);
+    m_l1d_cache->configure_neighbors(nullptr, nullptr, nullptr, m_dram);
   }
 }
 
@@ -77,6 +86,8 @@ bool memory_hierarchy_c::access(addr_t address, int access_type) {
 
   if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::DRAM_ONLY)) {
     return m_dram->access(req);
+  } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) { 
+    return m_l1d_cache->access(req);
   }
   return false;
 }
@@ -94,9 +105,51 @@ mem_req_s* memory_hierarchy_c::create_mem_req(addr_t address, int access_type) {
   req->m_rdy_cycle = m_cycle;
   req->m_done = false;
   req->m_dirty = false;
+  req->m_is_orig_wr = false;
 
   // DEBUG("[MEM_H] Create REQ #%d %8lx @ %ld\n", req->m_id, req->m_addr, m_cycle);
   return req;
+}
+
+/**
+ * Tick a cycle for memory hierarchy.
+ */
+void memory_hierarchy_c::run_a_cycle() {
+  ////////////////////////////////////////////////////////////////////
+  // \TODO: Write the code to implement this function
+  // 1. Tick a acycle for each cache/memory component
+  // Think carefully what should be the order of run_a_cycle
+  // 2. Process done requests.
+  ////////////////////////////////////////////////////////////////////
+
+  if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::DRAM_ONLY)) {
+    m_dram->run_a_cycle();
+  } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) { 
+    m_l1d_cache->run_a_cycle();
+    m_dram->run_a_cycle();
+  }
+
+  process_done_req();
+
+  ++m_cycle; 
+}
+
+/**
+ * This function processes the done request. The done_queue contains the
+ * requests whose data is ready to return to the core.  
+ * Processing a "done request" means sending the data to the core (conceptually).
+ */
+void memory_hierarchy_c::process_done_req() {
+  ////////////////////////////////////////////////////////////////////
+  // TODO: Write the code to implement this function
+  // Free done requests
+  ////////////////////////////////////////////////////////////////////
+  
+  for (auto it = m_done_queue->m_entry.begin(); it != m_done_queue->m_entry.end(); ) {
+    free_mem_req(*it);
+    ++it;
+  }
+  m_done_queue->m_entry.clear();
 }
 
 /**
@@ -111,42 +164,6 @@ void memory_hierarchy_c::free_mem_req(mem_req_s* req) {
 #ifdef __DEBUG__
   //dump(false); // print out cache dump
 #endif
-}
-
-/**
- * Tick a cycle for memory hierarchy.
- */
-void memory_hierarchy_c::run_a_cycle() {
-  ////////////////////////////////////////////////////////////////////
-  // TODO: Write the code to implement this function
-  // 1. Tick a acycle for each cache/memory component
-  // Think carefully what should be the order of run_a_cycle
-  // 2. Process done requests.
-  ////////////////////////////////////////////////////////////////////
- 
-  m_dram->run_a_cycle();
-
-  process_done_req();
-
-  ++m_cycle; 
-}
-
-/**
- * This function processes the done request. The done_queue contains the
- * requests whose data is ready to return to the core.  Processing a "done
- * request" means sending the data to the core (conceptually).
- */
-void memory_hierarchy_c::process_done_req() {
-  ////////////////////////////////////////////////////////////////////
-  // TODO: Write the code to implement this function
-  // Free done requests
-  ////////////////////////////////////////////////////////////////////
-  
-  for (auto it = m_done_queue->m_entry.begin(); it != m_done_queue->m_entry.end(); ) {
-    free_mem_req(*it);
-    ++it
-  }
-  m_done_queue->m_entry.clear();
 }
 
 /**
@@ -168,7 +185,15 @@ bool memory_hierarchy_c::is_wb_done() {
   // If there is no in-flight writeback requests for all the caches and
   // main memory, return true.
   ////////////////////////////////////////////////////////////////////
-  return m_dram->m_in_flight_wb_queue->empty();
+  bool is_done = false;
+  if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::DRAM_ONLY)) {
+    is_done = m_dram->m_in_flight_wb_queue->empty();
+  } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) { 
+    is_done = m_dram->m_in_flight_wb_queue->empty() && 
+              m_l1d_cache->m_in_flight_wb_queue->empty();
+  }
+
+  return is_done;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -182,7 +207,7 @@ memory_hierarchy_c::~memory_hierarchy_c() {
 void memory_hierarchy_c::print_stats() {
 
   if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) {
-    m_l1u_cache->print_stats();
+    m_l1d_cache->print_stats();
   } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::MULTI_LEVEL)) {
     m_l1i_cache->print_stats();
     m_l1d_cache->print_stats();

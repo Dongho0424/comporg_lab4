@@ -44,8 +44,12 @@ private:
   void process_fill_queue();      ///< process requests from fill_queue
   void process_wb_queue();        ///< process requests from wb_queue
 
+  // for write-back evicted cache line 
+  mem_req_s* create_wb_req(addr_t evicted_tag, mem_req_s* req);
+
 public:
   queue_c* m_in_flight_wb_queue;  ///< in-flight write-back queue
+  counter m_cycle;                ///< clock cycle                         
 
 private:
   memory_hierarchy_c* m_mm;
@@ -58,8 +62,6 @@ private:
   queue_c* m_out_queue;           ///< out queue 
   queue_c* m_fill_queue;          ///< fill queue 
   queue_c* m_wb_queue;            ///< write-back queue
-
-  counter m_cycle;                ///< clock cycle                         
 
   cache_c* m_prev_i;              ///< previous I-cache level pointer
   cache_c* m_prev_d;              ///< previous D-cache level pointer

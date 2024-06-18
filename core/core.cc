@@ -45,7 +45,7 @@ void core_c::run_sim(std::string filename) {
         m_mm->access(address, type);
         m_num_insts++;
 
-        if (m_num_insts % 100000 == 0) {
+        if (m_num_insts % 10000 == 0) {
           std::cout <<"Processed " << m_num_insts << " instructions\n";
         }
 
@@ -75,5 +75,5 @@ void core_c::run_sim(std::string filename) {
 void core_c::run_a_cycle() {
   m_mm->run_a_cycle();
 
-  m_cycle++;
+  ++m_cycle;
 } 

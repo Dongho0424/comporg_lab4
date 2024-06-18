@@ -35,6 +35,8 @@ struct mem_req_s {
                          
   bool     m_done;       ///< request done? (data returned?)
   bool     m_dirty;      
+
+  bool     m_is_orig_wr; ///< original write request?
   
   mem_req_s(addr_t addr, int access_type) {
     m_addr = addr;
