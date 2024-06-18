@@ -142,12 +142,11 @@ void memory_hierarchy_c::process_done_req() {
   // Free done requests
   ////////////////////////////////////////////////////////////////////
   
-  for (auto it = m_in_flight_reqs.begin(); it != m_in_flight_reqs.end(); ++it) {
-    mem_req_s* req = *it;
-    if (req->m_done) {
-      free_mem_req(req);
-    }
+  for (auto it = m_done_queue->m_entry.begin(); it != m_done_queue->m_entry.end(); ) {
+    free_mem_req(*it);
+    ++it
   }
+  m_done_queue->m_entry.clear();
 }
 
 /**
@@ -169,8 +168,7 @@ bool memory_hierarchy_c::is_wb_done() {
   // If there is no in-flight writeback requests for all the caches and
   // main memory, return true.
   ////////////////////////////////////////////////////////////////////
-  // return m_dram->m_in_flight_wb_queue->empty();
-  return true;
+  return m_dram->m_in_flight_wb_queue->empty();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
