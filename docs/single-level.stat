@@ -1,0 +1,17 @@
+------------------------------
+Performance Stats
+------------------------------
+CPI:  20.3642
+number of cycles: 15874196
+number of insts: 779515
+number of memory insts: 220485
+------------------------------
+L1 Hit Rate: 89.8372 %
+------------------------------
+number of accesses: 1000000
+number of hits: 898372
+number of misses: 101628
+number of writes: 80669
+number of writebacks: 18412
+number of back invalidations: 0
+number of writebacks due to back invalidations: 0
