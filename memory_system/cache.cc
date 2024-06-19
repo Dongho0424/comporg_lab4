@@ -319,6 +319,7 @@ void cache_c::back_inv(mem_req_s *back_inv_req) {
   } // evicted cache block of L2 does not exist in L1.
 
   // Back-Invalidate //
+  set->m_lru_stack.remove(&set->m_entry[hit_index]);
   ++m_num_backinvals;
   
   // invalidate
