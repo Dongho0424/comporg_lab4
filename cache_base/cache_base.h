@@ -62,15 +62,17 @@ public:
   void print_stats();
   void dump_tag_store(bool is_file);  // false: dump to stdout, true: dump to a file
 
+  bool get_is_evicted() { return m_is_evicted; }
   bool get_is_evicted_dirty() { return m_is_evicted_dirty; }
   addr_t get_evicted_tag() { return m_evicted_tag; }
   int m_num_sets;         // number of sets
   int m_line_size;        // cache line size
 
+  cache_set_c **m_set_list;    // cache data structure
+
 private:
   std::string m_name;     // cache name
 
-  cache_set_c **m_set_list;    // cache data structure
 
   // cache statistics
   int m_num_accesses; // everytime
@@ -82,6 +84,9 @@ private:
   // for evicted cache line
   bool m_is_evicted_dirty;
   addr_t m_evicted_tag;
+
+  // for back inv
+  bool m_is_evicted;
 };
 
 #endif // !__CACHE_BASE_H__ 

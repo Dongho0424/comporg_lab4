@@ -91,6 +91,10 @@ bool cache_c::fill(mem_req_s* req) {
  * a new ready cycle needs to be set for the request .
  */
 bool cache_c::access(mem_req_s* req) { 
+  // If req type is Write but is_orig_wr is true, then we need to request as READ type
+  // But we cannot explictly change original type.
+  // Thus, handling the request of (is_orig_wr == true) is as same as READ type, now on.
+
   req->m_rdy_cycle = m_cycle + m_latency;  // Add the intrinsic cache latency
   m_in_queue->push(req);          // Put the request into the in_queue
   return true;
@@ -118,7 +122,10 @@ void cache_c::process_in_queue() {
   m_in_queue->pop(req);
   
   // Access the cache
-  bool hit = cache_base_c::access(req->m_addr, req->m_type, false);
+  // If Write miss at upper cache (req->m_is_write_miss = true),
+  // we have to access this cache as "Read" Request
+  int req_type = req->m_is_write_miss ? REQ_DFETCH : req->m_type;
+  bool hit = cache_base_c::access(req->m_addr, req_type, false);
 
   // 1. Read(IF) Hit
   // 1.1 (L1 Cache)   => Done
@@ -129,17 +136,16 @@ void cache_c::process_in_queue() {
   // Cache hit
   if (hit) {
     // 1. Read(IF) Hit
-    if (req->m_type == REQ_IFETCH || req->m_type == REQ_DFETCH) {
+    if (req_type == REQ_IFETCH || req_type == REQ_DFETCH) {
       // 1.1 (L1 Cache) Read Hit => Done
       if (m_level == MEM_L1) {
         // Done
         done_func(req);
       }
       // 1.2 (L2) => upper level fill queue
-      else {
+      else if (m_level == MEM_L2){
         // Fill the upper level cache
-        // TODO: Implement L2 for Part3
-        // m_prev_d->fill(req);
+        m_prev_d->fill(req);
       }
     } 
     // 2. Write Hit => Done
@@ -163,21 +169,39 @@ void cache_c::process_out_queue() {
   if (it == m_out_queue->m_entry.end()) return;
   mem_req_s* req = (*it);
 
-  // before ready cycle
-  // yet finishing access() function
-  if (req->m_rdy_cycle > m_cycle) {
-    return;
-  }
-
   m_out_queue->pop(req);
 
-  // move to lower input queue as "Read" Request
-  req->m_is_orig_wr = true;
-  // TEMP: Remove
-  // std::cout << "Is originally Write?: " << req->m_is_orig_wr << '\n';
-  m_memory->access(req);
-}
 
+  // TODO: in_flight_wb_queue 처리하기
+
+  // Not all requests are miss
+  // Type: Read(IF) or Write => Read miss or Write miss
+  // Type: Writeback => Not a miss. Just write-back
+
+  if (req->m_type == REQ_WB) {
+
+    if (m_level == MEM_L1) {
+      m_next->fill(req);
+    } else if (m_level == MEM_L2) {
+      // FIXME: WB to dram is using access()?
+      m_memory->access(req);
+    }
+
+  } else {
+    // If Write miss, (The fact that req is in out_queue means it is a miss)
+    // move to lower input queue as "Read" Request
+    req->m_is_write_miss = (req->m_type == WRITE);
+
+    // access request to lower level  
+    if (m_level == MEM_L1) {
+      m_next->access(req);
+    } else if (m_level == MEM_L2) {
+      m_memory->access(req);
+    }
+  }
+
+  // WriteBack to lower cache or dram
+}
 
 /** 
  * This function processes the fill queue.  The fill queue contains both the
@@ -198,30 +222,115 @@ void cache_c::process_fill_queue() {
   }
   m_fill_queue->pop(req);
 
-  // done with the fill request
-  done_func(req);
-
-  // 1. The dirty victim from upper level for write-back
+  // Fill_1. The dirty victim from upper level for write-back: Fill_1
   //    - Do not modify the LRU stack 
   //    - clean victim never put into fill_queue
-  // TODO
-  // 2. Due to Read(Write) miss, the data from lower level for fill
-  // 3. Write-back due to back invalidation
-  bool hit = cache_base_c::access(req->m_addr, req->m_type, true);
+  // Fill_2. Due to Read(Write) miss, the data from lower level for fill
 
-  // If the evicted cache line is dirty, we need to write-back to the lower level.
-  // 1. Thus we have to create new request with evicted cache line
-  // 2. And push it to WB queue
-  if (get_is_evicted_dirty()) {
-    assert(!hit && "cache_c::process_fill_queue(): All req of fill_queue should cache_base_c::access false");
-    mem_req_s* wb_req = create_wb_req(get_evicted_tag(), req);
-
-    m_wb_queue->push(wb_req);
-
-    // put current request into in-flight wb queue
-    // This request will be committed with next request.
-    // m_in_flight_wb_queue->push(wb_req);
+  // Fill_1
+  if (req->m_type == REQ_WB) {
+    // WriteBack to current cache
+    cache_base_c::access(req->m_addr, REQ_WB, true);
+    // Pop WB request from uppder level m_in_flight_wb_queue 
+    m_in_flight_wb_queue->pop(req);
+    // FIXME: L2에서 WB하고 자기꺼 pop, dram은 알아서 해주는 거겠지?
   }
+  // Fill_2
+  else {
+    // If Dram forward cache block to L2, 
+    // then also forward cache block to L1.
+    // This is because of inclusive cache.
+    if (m_level == MEM_L2) {
+      m_prev_d->fill(req);
+    }
+
+    // We have to fill this cache as Read request
+    // when originally Write Miss && current level is L2
+    int req_type = (req->m_is_write_miss && m_level == MEM_L2) ? REQ_DFETCH : req->m_type;
+    bool hit = cache_base_c::access(req->m_addr, req_type, true);
+
+    // If the evicted cache line is dirty, we need to write-back to the lower level.
+    // 1. Thus we have to create new request with evicted cache line
+    // 2. And push it to WB queue
+    if (get_is_evicted_dirty()) {
+      assert(!hit && "cache_c::process_fill_queue(): All req of fill_queue should cache_base_c::access false");
+      mem_req_s* wb_req = create_wb_req(get_evicted_tag(), req);
+
+      m_wb_queue->push(wb_req);
+
+      // put wb request into next cache(dram) in-flight wb queue
+      // This request will be committed with next request.
+      // FIXME: L1 -> L2 에 넣어준다. L2 -> dram에 넣어준다.
+      if (m_level == MEM_L1) {
+        m_next->m_in_flight_wb_queue->push(wb_req);
+      } else if (m_level == MEM_L2) {
+        m_memory->m_in_flight_wb_queue->push(wb_req);
+      } else {
+        assert(false && "cache_c::process_fill_queue(): Invalid m_level");
+      }
+    }
+
+    // At L2 cache, if evicted, we should check back-Invalidation for inclusive cache
+    // handling at L1 cache.
+    if (get_is_evicted() && m_level == MEM_L2) {
+      mem_req_s* back_inv_req = create_wb_req(get_evicted_tag(), req);
+      m_prev_d->back_inv(back_inv_req);
+    }
+    // done only when L1 cache
+    if (m_level == MEM_L1) {
+      done_func(req);  
+    } 
+  }
+}
+
+// TODO
+// check whether corresponding block is in this cache or not.
+void cache_c::back_inv(mem_req_s *back_inv_req) {
+
+  assert(m_level == MEM_L1 && "cache_c::back_inv(): This function should be called only in L1 cache");
+
+  addr_t address = back_inv_req->m_addr;
+  // std::cout<<"m_num_sets: "<<m_num_sets<<std::endl;
+  // std::cout<<"m_line_size: "<<m_line_size<<std::endl;
+  int tag = address / (m_num_sets * m_line_size);
+  int set_index = (address / m_line_size) % m_num_sets;
+
+  cache_set_c* set = m_set_list[set_index];
+
+  // Check if there is a cache hit
+  bool hit = false;
+  int hit_index = -1;
+
+  for (int i = 0; i < set->m_assoc; ++i) {
+    if (set->m_entry[i].m_valid && set->m_entry[i].m_tag == tag) {
+      hit = true;
+      hit_index = i;
+      break;
+    }
+  }
+
+  if (!hit) { 
+    // std::cout << "Inside the back_inv, just return" << std::endl;
+    return ; 
+  } // evicted cache block of L2 does not exist in L1.
+  exit(1);
+  // Back-Invalidate //
+  ++m_num_backinvals;
+  
+  // invalidate
+  set->m_entry[hit_index].m_valid = false;
+  
+  // If the evicted cache line is dirty, we need to write-back to the memory.
+  bool is_dirty = set->m_entry[hit_index].m_dirty;
+
+  // Write-back due to Back-Invalidate
+  if (is_dirty) {
+    ++m_num_writebacks_backinval;
+
+    // Write-back to dram directly, not push to fill queue
+    m_memory->access(back_inv_req);
+  }
+
 }
 
 mem_req_s* cache_c::create_wb_req(addr_t evicted_tag, mem_req_s* req) {
@@ -229,16 +338,17 @@ mem_req_s* cache_c::create_wb_req(addr_t evicted_tag, mem_req_s* req) {
   int offset = req->m_addr % m_line_size;
   addr_t new_addr = (evicted_tag * set_index * m_line_size) + (set_index * m_line_size) + offset;
 
-  mem_req_s* new_req = new mem_req_s(new_addr, WRITE_BACK);
+  mem_req_s* new_req = new mem_req_s(new_addr, REQ_WB);
   new_req->m_id = 424;
   new_req->m_in_cycle = m_cycle;
   new_req->m_rdy_cycle = m_cycle;
   new_req->m_done = false;
   new_req->m_dirty = true;
-  new_req->m_is_orig_wr = false;
+  new_req->m_is_write_miss = false;
 
   return new_req;
 }
+
 
 /** 
  * This function processes the write-back queue.
@@ -250,15 +360,9 @@ void cache_c::process_wb_queue() {
   auto it = m_wb_queue->m_entry.begin();
   if (it == m_wb_queue->m_entry.end()) return;
   mem_req_s* req = (*it);
-  // before ready cycle
-  // yet finishing access() function
-  if (req->m_rdy_cycle > m_cycle) {
-    return;
-  }
   m_wb_queue->pop(req);
 
   // move to output queue
-  req->m_type = REQ_WB;
   m_out_queue->push(req);
 }
 

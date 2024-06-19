@@ -83,6 +83,10 @@ cache_base_c::cache_base_c(std::string name, int num_sets, int assoc, int line_s
   m_num_misses = 0;
   m_num_writes = 0;
   m_num_writebacks = 0;
+
+  m_is_evicted = false;
+  m_is_evicted_dirty = false;
+  m_evicted_tag = 0;
 }
 
 // cache_base_c destructor
@@ -219,7 +223,7 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
         fill_1(set, hit_index);
       }
       // 2-3-2. miss: never goes into this
-      assert(hit);
+      // assert(hit);
     }
   }
   return hit;
@@ -227,8 +231,6 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
 
 void cache_base_c::fill_1(cache_set_c* set, int hit_index) { 
   set->m_entry[hit_index].m_dirty = true;
-  // num_hits++ ?? 
-  // TODO
 }
 
 void cache_base_c::fill_2(cache_set_c* set, int access_type, int tag) {
@@ -257,6 +259,8 @@ void cache_base_c::fill_2(cache_set_c* set, int access_type, int tag) {
   if (set->m_lru_stack.size() > 0) {
     evict_index = set->m_lru_stack.back() - set->m_entry;
   } 
+
+  m_is_evicted = true;
   
   // Evict and Writeback
   if (set->m_entry[evict_index].m_dirty) {

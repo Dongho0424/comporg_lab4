@@ -36,7 +36,10 @@ struct mem_req_s {
   bool     m_done;       ///< request done? (data returned?)
   bool     m_dirty;      
 
-  bool     m_is_orig_wr; ///< original write request?
+  // If Write miss,
+  // move to lower input queue as "Read" Request
+  // This is a flag indicating for Write Miss. 
+  bool     m_is_write_miss; 
   
   mem_req_s(addr_t addr, int access_type) {
     m_addr = addr;
