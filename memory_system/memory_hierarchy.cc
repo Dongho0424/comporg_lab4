@@ -41,16 +41,19 @@ memory_hierarchy_c::memory_hierarchy_c(config_c& config) {
     assert(m_l1d_cache && "l1d is not instantiated");
     m_dram->set_done_func([&](mem_req_s *req) { m_l1d_cache->fill(req); }); 
     m_l1d_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
-  } else if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::MULTI_LEVEL) || m_l1u_cache != nullptr) { // Part3-A
+  } else if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::MULTI_LEVEL)) {
     assert(m_dram && "main memory is not instantiated");
-    assert(m_l1u_cache && "l1u is not instantiated");
+    // assert(m_l1u_cache && "l1u is not instantiated");
+    assert(m_l1i_cache && "l1i is not instantiated");
+    assert(m_l1d_cache && "l1d is not instantiated");
     assert(m_l2_cache && "l2 is not instantiated");
     m_dram->set_done_func([&](mem_req_s *req) { 
       // m_l1u_cache->fill(req); 
       m_l2_cache->fill(req); 
     }); 
     m_l2_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
-    m_l1u_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
+    m_l1i_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
+    m_l1d_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
   }
    
 }
@@ -71,6 +74,9 @@ void memory_hierarchy_c::init(config_c& config) {
   int l1d_num_sets = config.get_l1d_size() / (config.get_l1d_assoc() * config.get_l1d_line_size());
   m_l1d_cache = new cache_c("L1D", MEM_L1, l1d_num_sets, config.get_l1d_assoc(), config.get_l1d_line_size(), config.get_l1d_latency());
 
+  int l1i_num_sets = config.get_l1i_size() / (config.get_l1i_assoc() * config.get_l1i_line_size());
+  m_l1i_cache = new cache_c("L1I", MEM_L1, l1i_num_sets, config.get_l1i_assoc(), config.get_l1i_line_size(), config.get_l1i_latency());
+
   // same as l1d
   m_l1u_cache = new cache_c("L1D", MEM_L1, l1d_num_sets, config.get_l1d_assoc(), config.get_l1d_line_size(), config.get_l1d_latency());
 
@@ -82,9 +88,11 @@ void memory_hierarchy_c::init(config_c& config) {
   } else if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) {
     m_dram->configure_neighbors(m_l1d_cache);
     m_l1d_cache->configure_neighbors(nullptr, nullptr, nullptr, m_dram);
-  } else if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::MULTI_LEVEL) || m_l1u_cache != nullptr) { // Part3-A
-    m_l1u_cache->configure_neighbors(nullptr, nullptr, m_l2_cache, m_dram);
-    m_l2_cache->configure_neighbors(nullptr, m_l1u_cache, nullptr, m_dram);
+  } else if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::MULTI_LEVEL)) {
+    // m_l1u_cache->configure_neighbors(nullptr, nullptr, m_l2_cache, m_dram);
+    m_l1d_cache->configure_neighbors(nullptr, nullptr, m_l2_cache, m_dram);
+    m_l1i_cache->configure_neighbors(nullptr, nullptr, m_l2_cache, m_dram);
+    m_l2_cache->configure_neighbors(m_l1i_cache, m_l1d_cache, nullptr, m_dram);
     m_dram->configure_neighbors(m_l2_cache);
   }
 }
@@ -151,8 +159,9 @@ void memory_hierarchy_c::run_a_cycle() {
   } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) { 
     m_l1d_cache->run_a_cycle();
     m_dram->run_a_cycle();
-  } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::MULTI_LEVEL) || m_l1u_cache != nullptr) { // Part3-A
-    m_l1u_cache->run_a_cycle();
+  } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::MULTI_LEVEL)) { 
+    m_l1i_cache->run_a_cycle();
+    m_l1d_cache->run_a_cycle();
     m_l2_cache->run_a_cycle();
     m_dram->run_a_cycle();
   } 
@@ -219,9 +228,10 @@ bool memory_hierarchy_c::is_wb_done() {
   } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) { 
     is_done = m_dram->m_in_flight_wb_queue->empty() && 
               m_l1d_cache->m_in_flight_wb_queue->empty();
-  } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::MULTI_LEVEL) || m_l1u_cache != nullptr) { // Part3-A 
+  } else if (m_config.get_mem_hierarchy() == static_cast<int>(Hierarchy::MULTI_LEVEL)) { 
     is_done = m_dram->m_in_flight_wb_queue->empty() && 
-              m_l1u_cache->m_in_flight_wb_queue->empty() && 
+              m_l1i_cache->m_in_flight_wb_queue->empty() && 
+              m_l1d_cache->m_in_flight_wb_queue->empty() && 
               m_l2_cache->m_in_flight_wb_queue->empty();
   }
 

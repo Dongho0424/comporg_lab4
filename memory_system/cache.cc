@@ -145,7 +145,11 @@ void cache_c::process_in_queue() {
       // 1.2 (L2) => upper level fill queue
       else if (m_level == MEM_L2){
         // Fill the upper level cache
-        m_prev_d->fill(req);
+        if (req->m_type == INST_FETCH) {
+          m_prev_i->fill(req);
+        } else {
+          m_prev_d->fill(req);
+        }
       }
     } 
     // 2. Write Hit => Done
