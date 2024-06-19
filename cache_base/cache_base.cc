@@ -95,23 +95,53 @@ cache_base_c::~cache_base_c() {
  * This function looks up in the cache for a memory reference.
  * This needs to update all the necessary meta-data (e.g., tag/valid/dirty) 
  * and the cache statistics, depending on a cache hit or a miss.
+ * 
+ * fill_1: Write Back dirty victm from upper cache
+ *  Thanks to inclusive cache, we always have same cache block in this cache.
+ *  Thus always write hit and do not update LRU stack. 
+ * 
+ * fill_2: Fill cache block from lower cache
+ *  If there is empty cache block, fill it. + Update LRU
+ *  If there is no empty cache block, evict LRU cache block and fill it. + Update LRU
+ *    If evicted block is dirty, then write back to lower cache.
+ * 
+ * 1. Fill X ( Input Queue )
+ *  1-1. Read(IF)
+ *    1-1-1. hit:  do nothing + Update LRU
+ *    1-1-2. miss: do nothing
+ *  1-2. Write
+ *    1-2-1. hit:  dirty -> true + Update LRU
+ *    1-2-2. miss: do nothing
+ *  1-3. Write Back
+ *    1-3-1. hit:  never goes into this
+ *    1-3-2. miss: never goes into this
+ *
+ * 2. Fill O ( Fill Queue )
+ *  2-1. Read(IF)
+ *    2-1-1. hit:  never goes into this
+ *    2-1-2. miss: fill_2 && dirty -> false
+ *  2-2. Write
+ *    2-2-1. hit:  never goes into this
+ *    2-2-2. miss: fill_2 && dirty -> true
+ *  2-3. Write Back
+ *    2-3-1. hit:  fill_1 && no LRU usage
+ *    2-3-2. miss: never goes into this
+ * 
  * @param address - memory address 
  * @param access_type - read (0), write (1), or instruction fetch (2)
  * @param is_fill - if the access is for a cache fill
  * @param return "true" on a hit; "false" otherwise.
  */
-bool cache_base_c::access(addr_t address, int access_type, bool is_fill, bool use_lru) {
+bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
   ////////////////////////////////////////////////////////////////////
   // \TODO: Write the code to implement this function
   ////////////////////////////////////////////////////////////////////
-  if (!is_fill) { // 지금 이 경우는 WB가 아닌 경우임. WB 경우에서 LRU 쓰면 안됨.
-    m_num_accesses++;
-  }
 
   int tag = address / (m_num_sets * m_line_size);
   int set_index = (address / m_line_size) % m_num_sets;
 
   cache_set_c* set = m_set_list[set_index];
+
   // Check if there is a cache hit
   bool hit = false;
   int hit_index = -1;
@@ -124,90 +154,127 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill, bool us
     }
   }
 
-  if (hit) { // Cache hit
-    m_num_hits++;
-    if (access_type == WRITE) {
-      // Write access
-      if (!is_fill) {
-        m_num_writes++;
+  // 1. Fill X ( Input Queue )
+  if (!is_fill) {
+    // 1-1. Read(IF)
+    if (access_type == READ || access_type == INST_FETCH) {
+      // 1-1-1. hit:  do nothing
+      if (hit) {
+        set->m_lru_stack.remove(&set->m_entry[hit_index]);
+        set->m_lru_stack.push_front(&set->m_entry[hit_index]);
+
+        // m_num_hits++;
       }
-      set->m_entry[hit_index].m_dirty = true;
-    }
-
-    // update LRU
-    // just hit cache line -> MRU
-    set->m_lru_stack.remove(&set->m_entry[hit_index]);
-    set->m_lru_stack.push_front(&set->m_entry[hit_index]);
-    // cache_entry_c tmp = set->m_entry[hit_index];
-    // set->m_lru_stack.remove(&tmp);
-    // set->m_lru_stack.push_front(&tmp);  
-
-  } else { // Cache miss
-    
-    if (!is_fill) { // 지금 이 경우는 WB가 아닌 경우
-      m_num_misses++;
-    }
-
-    // Write access
-    if (access_type == WRITE) {
-      if (!is_fill) {
-        m_num_writes++;
+      // 1-1-2. miss: do nothing
+      else {
+        // m_num_misses++;
       }
     }
+    // 1-2. Write
+    else if (access_type == WRITE) {
+      // 1-2-1. hit:  dirty -> true
+      if (hit) {
+        set->m_entry[hit_index].m_dirty = true;
+        set->m_lru_stack.remove(&set->m_entry[hit_index]);
+        set->m_lru_stack.push_front(&set->m_entry[hit_index]);
 
-    // Cache fill when cache miss (read miss fill, write miss fill, IF miss fill)
-    if (is_fill) {
-      for (int i = 0; i < set->m_assoc; ++i) {
-        // Found an empty cache entry 
-        if (!set->m_entry[i].m_valid) {
-
-          set->m_entry[i].m_valid = true;
-          // A write miss allocates a cacheline in the cache with a dirty flag.
-          set->m_entry[i].m_dirty = (access_type == WRITE);
-          set->m_entry[i].m_tag = tag;
-
-          // update LRU
-          // just filled cache line -> MRU
-          set->m_lru_stack.push_front(&set->m_entry[i]);
-          if (set->m_lru_stack.size() > set->m_assoc) {
-            set->m_lru_stack.pop_back();
-          }
-          return hit;
-        }
+        // m_num_hits++;
+      }
+      // 1-2-2. miss: do nothing
+      else {
+        // m_num_misses++;
       }
 
-      // No empty cache entry found
-      // Evict a cache line with LRU policy and fill the new one
-      int evict_index = -1;
-      if (set->m_lru_stack.size() > 0) {
-        evict_index = set->m_lru_stack.back() - set->m_entry;
-      } 
-      
-      // Evict and Writeback
-      if (set->m_entry[evict_index].m_dirty) {
-        m_num_writebacks++;
+      m_num_writes++;
+    }
+    // 1-3. Write Back
+    else {
+      // 1-3-1. hit:  never goes into this
+      // 1-3-2. miss: never goes into this
+    }
+    assert(access_type != WRITE_BACK);
+    if (hit) { m_num_hits++;} 
+    else { m_num_misses++; }
+    m_num_accesses++;
+  }
 
-        // for Cache Writeback
-        is_evicted_dirty = true;
-        m_evicted_tag = set->m_entry[evict_index].m_tag;
+  // 2. Fill O ( Fill Queue )
+  else {
+    // 2-1. Read(IF)
+      // 2-1-1. hit:  never goes into this
+      // 2-1-2. miss: fill_2 && dirty -> false
+    // 2-2. Write
+      // 2-2-1. hit:  never goes into this
+      // 2-2-2. miss: fill_2 && dirty -> true
+    if (access_type == READ || access_type == INST_FETCH || access_type == WRITE) {
+      assert(!hit);
+      if (!hit) {
+        fill_2(set, access_type, tag);
       }
+    }
+    // 2-3. Write Back
+    else if (access_type == WRITE_BACK) {
+      // 2-3-1. hit:  fill_1 && no LRU usage
+      if (hit) {
+        fill_1(set, hit_index);
+      }
+      // 2-3-2. miss: never goes into this
+      assert(hit);
+    }
+  }
+  return hit;
+}
 
-      // Update with new cache entry
-      // Use LRU only when Read(Write) miss and data from lower cache
-      if (use_lru) {
-        set->m_entry[evict_index].m_valid = true;
-        set->m_entry[evict_index].m_dirty = (access_type == WRITE);
-        set->m_entry[evict_index].m_tag = tag;    
+void cache_base_c::fill_1(cache_set_c* set, int hit_index) { 
+  set->m_entry[hit_index].m_dirty = true;
+  // num_hits++ ?? 
+  // TODO
+}
 
-        // update LRU
+void cache_base_c::fill_2(cache_set_c* set, int access_type, int tag) {
+  for (int i = 0; i < set->m_assoc; ++i) {
+    // Found an empty cache entry 
+    if (!set->m_entry[i].m_valid) {
+
+      set->m_entry[i].m_valid = true;
+      // A write miss allocates a cacheline in the cache with a dirty flag.
+      set->m_entry[i].m_dirty = (access_type == WRITE);
+      set->m_entry[i].m_tag = tag;
+
+      // update LRU
+      // just filled cache line -> MRU
+      set->m_lru_stack.push_front(&set->m_entry[i]);
+      if (set->m_lru_stack.size() > set->m_assoc) {
         set->m_lru_stack.pop_back();
-        set->m_lru_stack.push_front(&set->m_entry[evict_index]);
       }
-
+      return;
     }
   }
 
-  return hit;
+  // No empty cache entry found
+  // Evict a cache line with LRU policy and fill the new one
+  int evict_index = -1;
+  if (set->m_lru_stack.size() > 0) {
+    evict_index = set->m_lru_stack.back() - set->m_entry;
+  } 
+  
+  // Evict and Writeback
+  if (set->m_entry[evict_index].m_dirty) {
+    m_num_writebacks++;
+
+    // for Cache Writeback
+    m_is_evicted_dirty = true;
+    m_evicted_tag = set->m_entry[evict_index].m_tag;
+  }
+
+  // Fill with new cache block
+  set->m_entry[evict_index].m_valid = true;
+  set->m_entry[evict_index].m_dirty = (access_type == WRITE);
+  set->m_entry[evict_index].m_tag = tag;    
+
+  // update LRU
+  set->m_lru_stack.pop_back();
+  set->m_lru_stack.push_front(&set->m_entry[evict_index]);
 }
 
 /**

@@ -118,7 +118,7 @@ void cache_c::process_in_queue() {
   m_in_queue->pop(req);
   
   // Access the cache
-  bool hit = cache_base_c::access(req->m_addr, req->m_type, false, true);
+  bool hit = cache_base_c::access(req->m_addr, req->m_type, false);
 
   // 1. Read(IF) Hit
   // 1.1 (L1 Cache)   => Done
@@ -207,8 +207,7 @@ void cache_c::process_fill_queue() {
   // TODO
   // 2. Due to Read(Write) miss, the data from lower level for fill
   // 3. Write-back due to back invalidation
-  bool use_lru = !(req->m_type == REQ_WB); // when request is WB type, then do not use LRU
-  bool hit = cache_base_c::access(req->m_addr, req->m_type, true, use_lru);
+  bool hit = cache_base_c::access(req->m_addr, req->m_type, true);
 
   // If the evicted cache line is dirty, we need to write-back to the lower level.
   // 1. Thus we have to create new request with evicted cache line
@@ -251,6 +250,11 @@ void cache_c::process_wb_queue() {
   auto it = m_wb_queue->m_entry.begin();
   if (it == m_wb_queue->m_entry.end()) return;
   mem_req_s* req = (*it);
+  // before ready cycle
+  // yet finishing access() function
+  if (req->m_rdy_cycle > m_cycle) {
+    return;
+  }
   m_wb_queue->pop(req);
 
   // move to output queue
