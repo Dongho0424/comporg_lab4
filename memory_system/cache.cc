@@ -313,11 +313,12 @@ void cache_c::back_inv(mem_req_s *back_inv_req) {
     // std::cout << "Inside the back_inv, just return" << std::endl;
     return ; 
   } // evicted cache block of L2 does not exist in L1.
-  exit(1);
+
   // Back-Invalidate //
   ++m_num_backinvals;
   
   // invalidate
+  set->m_lru_stack.remove(&set->m_entry[hit_index]);
   set->m_entry[hit_index].m_valid = false;
   
   // If the evicted cache line is dirty, we need to write-back to the memory.
