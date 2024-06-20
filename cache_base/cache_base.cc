@@ -239,7 +239,7 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
       // 2-3-2. miss: never goes into this
       // assert(hit);
       if (!hit) {
-        std::cout << "WB but hit is true, ERROR ERROR ERROR" << '\n';
+        std::cout << "WB but hit false, ERROR ERROR ERROR" << '\n';
       }
     }
     else if (access_type == CHECK) {

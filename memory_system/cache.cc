@@ -124,7 +124,10 @@ void cache_c::process_in_queue() {
   // Access the cache
   // If Write miss at upper cache (req->m_is_write_miss = true),
   // we have to access this cache as "Read" Request
-  int req_type = req->m_is_write_miss ? REQ_DFETCH : req->m_type;
+  if (req->m_type != WRITE && req->m_is_write_miss) {
+    std::cout << "write miss error" << std::endl;
+  }
+  int req_type = req->m_is_write_miss ? READ : req->m_type;
   bool hit = cache_base_c::access(req->m_addr, req_type, false);
 
   // 1. Read(IF) Hit
@@ -135,26 +138,32 @@ void cache_c::process_in_queue() {
 
   // Cache hit
   if (hit) {
-    // 1. Read(IF) Hit
-    if (req_type == REQ_IFETCH || req_type == REQ_DFETCH) {
-      // 1.1 (L1 Cache) Read Hit => Done
-      if (m_level == MEM_L1) {
-        // Done
-        done_func(req);
-      }
-      // 1.2 (L2) => upper level fill queue
-      else if (m_level == MEM_L2){
-        // Fill the upper level cache
-        // Although req is dirty, send as clean to L1
-        req->m_dirty = false;
-        m_prev_d->fill(req);
-      }
-    } 
-    // 2. Write Hit => Done
-    else {
-      assert(m_level == MEM_L1);
+    // // 1. Read(IF) Hit
+    // if (req_type == REQ_IFETCH || req_type == REQ_DFETCH) {
+    //   // 1.1 (L1 Cache) Read Hit => Done
+    //   if (m_level == MEM_L1) {
+    //     // Done
+    //     done_func(req);
+    //   }
+    //   // 1.2 (L2) => upper level fill queue
+    //   else if (m_level == MEM_L2){
+    //     // Fill the upper level cache
+    //     // Although req is dirty, send as clean to L1
+    //     req->m_dirty = false;
+    //     m_prev_d->fill(req);
+    //   }
+    // } 
+    // // 2. Write Hit => Done
+    // else if (req_type == REQ_DSTORE) {
+    //   assert(m_level == MEM_L1);
+    //   done_func(req);
+    // } 
+    if (m_level == MEM_L1) {
       done_func(req);
-    } 
+    } else if (m_level == MEM_L2) {
+      req->m_dirty = false;
+      m_prev_d->fill(req);
+    }
   }
   // 3. Read(IF) or Write Miss => out_queue
   else {
@@ -190,20 +199,28 @@ void cache_c::process_out_queue() {
       m_memory->access(req);
     }
 
-  } else {
-// access request to lower level  
+  } else if (req->m_type == REQ_DFETCH || req->m_type == REQ_DSTORE || req->m_type == REQ_IFETCH ) { // miss
+  // access request to lower level  
     if (m_level == MEM_L1) {
       // If Write miss, (The fact that req is in out_queue means it is a miss)
       // move to lower input queue as "Read" Request
-      req->m_is_write_miss = (req->m_type == WRITE);
+      req->m_is_write_miss = (req->m_type == REQ_DSTORE);
 
       m_next->access(req);
     } else if (m_level == MEM_L2) {
+      if (req->m_type == REQ_DSTORE && (!req->m_is_write_miss)) {
+        assert(false && "L2 Write Miss but type m_is_write_miss false");
+        std::cout << "L2 Write Miss but type m_is_write_miss false" << std::endl;
+      }
+      // if (req->m_is_write_miss) {
+        // std::cout << "L2 process_out_queue: Write Miss and access to memory" << std::endl;
+      // }
       m_memory->access(req);
     }
   }
-
-  // WriteBack to lower cache or dram
+  else {
+    assert(false);
+  }
 }
 
 /** 
@@ -232,8 +249,9 @@ void cache_c::process_fill_queue() {
 
   // Fill_1
   if (req->m_type == REQ_WB) {
+    assert(m_level == MEM_L2);
     // WriteBack to current cache
-    cache_base_c::access(req->m_addr, REQ_WB, true);
+    cache_base_c::access(req->m_addr, WRITE_BACK, true);
     // Pop WB request from uppder level m_in_flight_wb_queue 
     m_in_flight_wb_queue->pop(req);
     // FIXME: L2에서 WB하고 자기꺼 pop, dram은 알아서 해주는 거겠지?
@@ -262,15 +280,30 @@ void cache_c::process_fill_queue() {
 
       done_func(req);
 
-    } else if (m_level == MEM_L2) {
+    } else if (m_level == MEM_L2) { // Read(Write) Miss and filled from memory
+      // std::cout << req->m_type << std::endl;
+      // std::cout << req->m_is_write_miss << std::endl;
+      if (req->m_type != WRITE && req->m_is_write_miss) {
+        std::cout << "write miss error" << std::endl;
+      }
+      // assert(req->m_type == WRITE && (!req->m_is_write_miss) && "If L2 fill_2, always write miss when write");
+      if (req->m_is_write_miss ) {
+        if (req->m_type != WRITE) {
+          std::cout<<"If L2 fill_2, always write miss when write"<<std::endl;
+          assert(false);
+        }
+      }
+      // if (req->m_is_write_miss) {
+      //   std::cout<<"L2 fill_2, write miss"<<std::endl;
+      // }
       // First of all, forward to L1 
       m_prev_d->fill(req);
 
       // Write miss -> read
       // others -> others
-      int l2_req_type = (req->m_is_write_miss) ? REQ_DFETCH : req->m_type;
+      // int l2_req_type = (req->m_is_write_miss) ? READ : req->m_type;
 
-      cache_base_c::access(req->m_addr, l2_req_type, true);
+      cache_base_c::access(req->m_addr, READ, true);
 
       // if dirty victim has evicted, then write-back to MEM
       if (get_is_evicted_dirty()) {
@@ -376,6 +409,38 @@ void cache_c::back_inv(addr_t back_inv_addr) {
   }
 }
 
+/** 
+ * This function processes the write-back queue.
+ * The function basically moves the requests from wb_queue to out_queue.
+ * CURRENT: There is no limit on the number of requests we can process in a cycle.
+ */
+void cache_c::process_wb_queue() {
+  // \TODO: Implement this function
+  // auto it = m_wb_queue->m_entry.begin();
+  // if (it == m_wb_queue->m_entry.end()) return;
+  // mem_req_s* req = (*it);
+  // m_wb_queue->pop(req);
+
+  // // move to output queue
+  // m_out_queue->push(req);
+  while (!m_wb_queue->empty())
+  {
+    mem_req_s *req = m_wb_queue->m_entry.front();
+    m_wb_queue->pop(req);
+    m_out_queue->push(req);
+  }
+}
+
+/**
+ * Print statistics (DO NOT CHANGE)
+ */
+void cache_c::print_stats() {
+  cache_base_c::print_stats();
+  std::cout << "number of back invalidations: " << m_num_backinvals << "\n";
+  std::cout << "number of writebacks due to back invalidations: " << m_num_writebacks_backinval << "\n";
+}
+
+
 /*
 // If Dram forward cache block to L2, 
     // then also forward cache block to L1.
@@ -474,44 +539,18 @@ void cache_c::back_inv(addr_t back_inv_addr) {
 // }
 
 
-mem_req_s* cache_c::create_wb_req(addr_t evicted_tag, mem_req_s* req) {
-  int set_index = (req->m_addr / m_line_size) % m_num_sets;
-  int offset = req->m_addr % m_line_size;
-  addr_t new_addr = (evicted_tag * set_index * m_line_size) + (set_index * m_line_size) + offset;
+// mem_req_s* cache_c::create_wb_req(addr_t evicted_tag, mem_req_s* req) {
+//   int set_index = (req->m_addr / m_line_size) % m_num_sets;
+//   int offset = req->m_addr % m_line_size;
+//   addr_t new_addr = (evicted_tag * set_index * m_line_size) + (set_index * m_line_size) + offset;
 
-  mem_req_s* new_req = new mem_req_s(new_addr, REQ_WB);
-  new_req->m_id = 424;
-  new_req->m_in_cycle = m_cycle;
-  new_req->m_rdy_cycle = m_cycle;
-  new_req->m_done = false;
-  new_req->m_dirty = true;
-  new_req->m_is_write_miss = false;
+//   mem_req_s* new_req = new mem_req_s(new_addr, REQ_WB);
+//   new_req->m_id = 424;
+//   new_req->m_in_cycle = m_cycle;
+//   new_req->m_rdy_cycle = m_cycle;
+//   new_req->m_done = false;
+//   new_req->m_dirty = true;
+//   new_req->m_is_write_miss = false;
 
-  return new_req;
-}
-
-
-/** 
- * This function processes the write-back queue.
- * The function basically moves the requests from wb_queue to out_queue.
- * CURRENT: There is no limit on the number of requests we can process in a cycle.
- */
-void cache_c::process_wb_queue() {
-  // \TODO: Implement this function
-  auto it = m_wb_queue->m_entry.begin();
-  if (it == m_wb_queue->m_entry.end()) return;
-  mem_req_s* req = (*it);
-  m_wb_queue->pop(req);
-
-  // move to output queue
-  m_out_queue->push(req);
-}
-
-/**
- * Print statistics (DO NOT CHANGE)
- */
-void cache_c::print_stats() {
-  cache_base_c::print_stats();
-  std::cout << "number of back invalidations: " << m_num_backinvals << "\n";
-  std::cout << "number of writebacks due to back invalidations: " << m_num_writebacks_backinval << "\n";
-}
+//   return new_req;
+// }
