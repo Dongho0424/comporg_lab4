@@ -119,7 +119,9 @@ cache_base_c::~cache_base_c() {
  *  1-3. Write Back
  *    1-3-1. hit:  never goes into this
  *    1-3-2. miss: never goes into this
- *
+ *  1-4. Check (for checking cache hit or miss for back invalidation)
+ *    1-4-1. hit:  do nothing (return true)
+ *    1-4-2. miss: do nothing (return false)
  * 2. Fill O ( Fill Queue )
  *  2-1. Read(IF)
  *    2-1-1. hit:  never goes into this
@@ -130,6 +132,8 @@ cache_base_c::~cache_base_c() {
  *  2-3. Write Back
  *    2-3-1. hit:  fill_1 && no LRU usage
  *    2-3-2. miss: never goes into this
+ *  2-4. Check
+ *    never goes into this
  * 
  * @param address - memory address 
  * @param access_type - read (0), write (1), or instruction fetch (2)
@@ -192,9 +196,19 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
       m_num_writes++;
     }
     // 1-3. Write Back
-    else {
+    else if (access_type == WRITE_BACK){
       // 1-3-1. hit:  never goes into this
       // 1-3-2. miss: never goes into this
+      assert(false);
+    }
+    // 1-4. Check
+    else if (access_type == CHECK) {
+      // 1-4-1. hit:  do nothing (return true)
+      // 1-4-2. miss: do nothing (return false)
+      return hit;
+    }
+    else {
+      assert(false);
     }
     assert(access_type != WRITE_BACK);
     if (hit) { m_num_hits++;} 
@@ -224,6 +238,17 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
       }
       // 2-3-2. miss: never goes into this
       // assert(hit);
+      if (!hit) {
+        std::cout << "WB but hit is true, ERROR ERROR ERROR" << '\n';
+      }
+    }
+    else if (access_type == CHECK) {
+      // 2-4. Check
+      // never goes into this
+      assert(false);
+    }
+    else {
+      assert(false);
     }
   }
   return hit;
@@ -259,8 +284,10 @@ void cache_base_c::fill_2(cache_set_c* set, int access_type, int tag) {
   if (set->m_lru_stack.size() > 0) {
     evict_index = set->m_lru_stack.back() - set->m_entry;
   } 
+  assert(evict_index != -1);
 
   m_is_evicted = true;
+  m_evicted_tag = set->m_entry[evict_index].m_tag;
   
   // Evict and Writeback
   if (set->m_entry[evict_index].m_dirty) {
@@ -268,7 +295,6 @@ void cache_base_c::fill_2(cache_set_c* set, int access_type, int tag) {
 
     // for Cache Writeback
     m_is_evicted_dirty = true;
-    m_evicted_tag = set->m_entry[evict_index].m_tag;
   }
 
   // Fill with new cache block

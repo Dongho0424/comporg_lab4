@@ -49,7 +49,7 @@ memory_hierarchy_c::memory_hierarchy_c(config_c& config) {
       // m_l1u_cache->fill(req); 
       m_l2_cache->fill(req); 
     }); 
-    m_l2_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
+    // m_l2_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
     m_l1u_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
   }
    
@@ -72,7 +72,7 @@ void memory_hierarchy_c::init(config_c& config) {
   m_l1d_cache = new cache_c("L1D", MEM_L1, l1d_num_sets, config.get_l1d_assoc(), config.get_l1d_line_size(), config.get_l1d_latency());
 
   // same as l1d
-  m_l1u_cache = new cache_c("L1D", MEM_L1, l1d_num_sets, config.get_l1d_assoc(), config.get_l1d_line_size(), config.get_l1d_latency());
+  m_l1u_cache = new cache_c("L1U", MEM_L1, l1d_num_sets, config.get_l1d_assoc(), config.get_l1d_line_size(), config.get_l1d_latency());
 
   int l2_num_sets = config.get_l2_size() / (config.get_l2_assoc() * config.get_l2_line_size());
   m_l2_cache = new cache_c("L2", MEM_L2, l2_num_sets, config.get_l2_assoc(), config.get_l2_line_size(), config.get_l2_latency());

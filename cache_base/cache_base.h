@@ -13,6 +13,7 @@ typedef enum request_type_enum {
   WRITE = 1,
   INST_FETCH = 2,
   WRITE_BACK = 3,
+  CHECK = 4,
 } request_type;
 
 using addr_t = uint64_t;

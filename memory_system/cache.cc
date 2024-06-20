@@ -145,11 +145,14 @@ void cache_c::process_in_queue() {
       // 1.2 (L2) => upper level fill queue
       else if (m_level == MEM_L2){
         // Fill the upper level cache
+        // Although req is dirty, send as clean to L1
+        req->m_dirty = false;
         m_prev_d->fill(req);
       }
     } 
     // 2. Write Hit => Done
     else {
+      assert(m_level == MEM_L1);
       done_func(req);
     } 
   }
@@ -188,12 +191,12 @@ void cache_c::process_out_queue() {
     }
 
   } else {
-    // If Write miss, (The fact that req is in out_queue means it is a miss)
-    // move to lower input queue as "Read" Request
-    req->m_is_write_miss = (req->m_type == WRITE);
-
-    // access request to lower level  
+// access request to lower level  
     if (m_level == MEM_L1) {
+      // If Write miss, (The fact that req is in out_queue means it is a miss)
+      // move to lower input queue as "Read" Request
+      req->m_is_write_miss = (req->m_type == WRITE);
+
       m_next->access(req);
     } else if (m_level == MEM_L2) {
       m_memory->access(req);
@@ -237,7 +240,144 @@ void cache_c::process_fill_queue() {
   }
   // Fill_2
   else {
-    // If Dram forward cache block to L2, 
+    if (m_level == MEM_L1) {
+      cache_base_c::access(req->m_addr, req->m_type, true);
+      // if dirty victim has evicted, then write-back to L2
+      if (get_is_evicted_dirty()) {
+        // mem_req_s* wb_req = new
+        addr_t index = (req->m_addr / m_line_size) % m_num_sets;
+        addr_t offset = req->m_addr % m_line_size;
+        addr_t wb_req_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
+        mem_req_s* wb_req = new mem_req_s(wb_req_addr, REQ_WB);
+        wb_req->m_id = 424; // WB request from L1 to L2
+        wb_req->m_in_cycle = m_cycle;
+        wb_req->m_rdy_cycle = m_cycle;
+        wb_req->m_done = false;
+        wb_req->m_dirty = true;
+        wb_req->m_is_write_miss = false;
+
+        m_wb_queue->push(wb_req);
+        m_next->m_in_flight_wb_queue->push(wb_req);
+      }
+
+      done_func(req);
+
+    } else if (m_level == MEM_L2) {
+      // First of all, forward to L1 
+      m_prev_d->fill(req);
+
+      // Write miss -> read
+      // others -> others
+      int l2_req_type = (req->m_is_write_miss) ? REQ_DFETCH : req->m_type;
+
+      cache_base_c::access(req->m_addr, l2_req_type, true);
+
+      // if dirty victim has evicted, then write-back to MEM
+      if (get_is_evicted_dirty()) {
+        addr_t index = (req->m_addr / m_line_size) % m_num_sets;
+        addr_t offset = req->m_addr % m_line_size;
+        assert(get_evicted_tag() != 0);
+        addr_t wb_req_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
+        mem_req_s* wb_req = new mem_req_s(wb_req_addr, REQ_WB);
+        wb_req->m_id = 4240424; // WB request from L2 to MEM
+        wb_req->m_in_cycle = m_cycle;
+        wb_req->m_rdy_cycle = m_cycle;
+        wb_req->m_done = false;
+        wb_req->m_dirty = true;
+        wb_req->m_is_write_miss = false;
+
+        m_wb_queue->push(wb_req);
+        m_memory->m_in_flight_wb_queue->push(wb_req);
+      }
+
+      /**
+       * Back Invalidation Process
+       * 1. if evicted (both clean victim and dirty victim)
+       * 2. check if the evicted block is also in L1
+       * 3. then 
+       * 3-1. invalidate
+       * 3-2. update LRU logic
+       * 4. check if invalidated block is dirty
+       * 4-1. if dirty, write-back to memory directly
+       */
+      if (get_is_evicted()) {
+        // check whether evicted block is also in L1
+        addr_t index = (req->m_addr / m_line_size) % m_num_sets;
+        addr_t offset = req->m_addr % m_line_size;
+        assert(get_evicted_tag() != 0);
+        addr_t evicted_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
+        bool exist_also_l1 = m_prev_d->cache_base_c::access(evicted_addr, CHECK, false);
+
+        // 3. invalidate
+        if (exist_also_l1) {
+          m_prev_d->back_inv(evicted_addr);
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Back Invalidation Process
+ * 3. then 
+ * 3-1. invalidate
+ * 3-2. update LRU logic
+ * 4. check if invalidated block is dirty
+ * 4-1. if dirty, write-back to memory directly
+ */
+void cache_c::back_inv(addr_t back_inv_addr) {
+  assert (m_level == MEM_L1);
+
+  ++m_num_backinvals;
+
+  int tag = back_inv_addr / (m_num_sets * m_line_size);
+  int set_index = (back_inv_addr / m_line_size) % m_num_sets;
+
+  cache_set_c* set = m_set_list[set_index];
+
+  // Check if there is a cache hit
+  bool hit = false;
+  int hit_index = -1;
+
+  for (int i = 0; i < set->m_assoc; ++i) {
+    if (set->m_entry[i].m_valid && set->m_entry[i].m_tag == tag) {
+      hit = true;
+      hit_index = i;
+      break;
+    }
+  }
+
+  if (hit) {
+    // if dirty, write back to memory directly
+    if (set->m_entry[hit_index].m_dirty) {
+      ++m_num_writebacks_backinval;
+      // write back to memory directly
+      mem_req_s* mem_wb_req = new mem_req_s(back_inv_addr, REQ_WB);
+      mem_wb_req->m_id = 1537; // Direct WB_backinv request from L2 to MEM
+      mem_wb_req->m_in_cycle = m_cycle;
+      mem_wb_req->m_rdy_cycle = m_cycle;
+      mem_wb_req->m_done = false;
+      mem_wb_req->m_dirty = true;
+      mem_wb_req->m_is_write_miss = false;
+      m_memory->access(mem_wb_req);
+    }
+
+    // invalid
+    set->m_entry[hit_index].m_valid = false;
+    set->m_entry[hit_index].m_dirty = false;
+    set->m_entry[hit_index].m_tag = 0;
+
+    // update LRU
+    set->m_lru_stack.remove(&set->m_entry[hit_index]);
+  }
+  // never goes into this
+  else {
+    assert(false);
+  }
+}
+
+/*
+// If Dram forward cache block to L2, 
     // then also forward cache block to L1.
     // This is because of inclusive cache.
     if (m_level == MEM_L2) {
@@ -280,59 +420,59 @@ void cache_c::process_fill_queue() {
     if (m_level == MEM_L1) {
       done_func(req);  
     } 
-  }
-}
+*/
 
 // TODO
 // check whether corresponding block is in this cache or not.
-void cache_c::back_inv(mem_req_s *back_inv_req) {
+// void cache_c::back_inv(mem_req_s *back_inv_req) {
 
-  assert(m_level == MEM_L1 && "cache_c::back_inv(): This function should be called only in L1 cache");
+//   assert(m_level == MEM_L1 && "cache_c::back_inv(): This function should be called only in L1 cache");
 
-  addr_t address = back_inv_req->m_addr;
-  // std::cout<<"m_num_sets: "<<m_num_sets<<std::endl;
-  // std::cout<<"m_line_size: "<<m_line_size<<std::endl;
-  int tag = address / (m_num_sets * m_line_size);
-  int set_index = (address / m_line_size) % m_num_sets;
+//   addr_t address = back_inv_req->m_addr;
+//   // std::cout<<"m_num_sets: "<<m_num_sets<<std::endl;
+//   // std::cout<<"m_line_size: "<<m_line_size<<std::endl;
+//   int tag = address / (m_num_sets * m_line_size);
+//   int set_index = (address / m_line_size) % m_num_sets;
 
-  cache_set_c* set = m_set_list[set_index];
+//   cache_set_c* set = m_set_list[set_index];
 
-  // Check if there is a cache hit
-  bool hit = false;
-  int hit_index = -1;
+//   // Check if there is a cache hit
+//   bool hit = false;
+//   int hit_index = -1;
 
-  for (int i = 0; i < set->m_assoc; ++i) {
-    if (set->m_entry[i].m_valid && set->m_entry[i].m_tag == tag) {
-      hit = true;
-      hit_index = i;
-      break;
-    }
-  }
+//   for (int i = 0; i < set->m_assoc; ++i) {
+//     if (set->m_entry[i].m_valid && set->m_entry[i].m_tag == tag) {
+//       hit = true;
+//       hit_index = i;
+//       break;
+//     }
+//   }
 
-  if (!hit) { 
-    // std::cout << "Inside the back_inv, just return" << std::endl;
-    return ; 
-  } // evicted cache block of L2 does not exist in L1.
+//   if (!hit) { 
+//     // std::cout << "Inside the back_inv, just return" << std::endl;
+//     return ; 
+//   } // evicted cache block of L2 does not exist in L1.
 
-  // Back-Invalidate //
-  ++m_num_backinvals;
+//   // Back-Invalidate //
+//   ++m_num_backinvals;
   
-  // invalidate
-  set->m_lru_stack.remove(&set->m_entry[hit_index]);
-  set->m_entry[hit_index].m_valid = false;
+//   // invalidate
+//   set->m_lru_stack.remove(&set->m_entry[hit_index]);
+//   set->m_entry[hit_index].m_valid = false;
   
-  // If the evicted cache line is dirty, we need to write-back to the memory.
-  bool is_dirty = set->m_entry[hit_index].m_dirty;
+//   // If the evicted cache line is dirty, we need to write-back to the memory.
+//   bool is_dirty = set->m_entry[hit_index].m_dirty;
 
-  // Write-back due to Back-Invalidate
-  if (is_dirty) {
-    ++m_num_writebacks_backinval;
+//   // Write-back due to Back-Invalidate
+//   if (is_dirty) {
+//     ++m_num_writebacks_backinval;
 
-    // Write-back to dram directly, not push to fill queue
-    m_memory->access(back_inv_req);
-  }
+//     // Write-back to dram directly, not push to fill queue
+//     m_memory->access(back_inv_req);
+//   }
 
-}
+// }
+
 
 mem_req_s* cache_c::create_wb_req(addr_t evicted_tag, mem_req_s* req) {
   int set_index = (req->m_addr / m_line_size) % m_num_sets;
