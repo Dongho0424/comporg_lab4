@@ -86,7 +86,7 @@ cache_base_c::cache_base_c(std::string name, int num_sets, int assoc, int line_s
 
   m_is_evicted = false;
   m_is_evicted_dirty = false;
-  m_evicted_tag = 0;
+  m_evicted_addr = 0;
 }
 
 // cache_base_c destructor
@@ -227,7 +227,7 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
     if (access_type == READ || access_type == INST_FETCH || access_type == WRITE) {
       assert(!hit);
       if (!hit) {
-        fill_2(set, access_type, tag);
+        fill_2(set, access_type, tag, set_index);
       }
     }
     // 2-3. Write Back
@@ -258,7 +258,7 @@ void cache_base_c::fill_1(cache_set_c* set, int hit_index) {
   set->m_entry[hit_index].m_dirty = true;
 }
 
-void cache_base_c::fill_2(cache_set_c* set, int access_type, int tag) {
+void cache_base_c::fill_2(cache_set_c* set, int access_type, int tag, int set_index) {
   for (int i = 0; i < set->m_assoc; ++i) {
     // Found an empty cache entry 
     if (!set->m_entry[i].m_valid) {
@@ -287,7 +287,8 @@ void cache_base_c::fill_2(cache_set_c* set, int access_type, int tag) {
   assert(evict_index != -1);
 
   m_is_evicted = true;
-  m_evicted_tag = set->m_entry[evict_index].m_tag;
+  // m_evicted_tag = set->m_entry[evict_index].m_tag;
+  m_evicted_addr = set->m_entry[evict_index].m_tag * (m_num_sets * m_line_size) + set_index * m_line_size;
   
   // Evict and Writeback
   if (set->m_entry[evict_index].m_dirty) {

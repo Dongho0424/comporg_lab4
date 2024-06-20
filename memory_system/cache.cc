@@ -264,8 +264,9 @@ void cache_c::process_fill_queue() {
       if (get_is_evicted_dirty()) {
         // mem_req_s* wb_req = new
         addr_t index = (req->m_addr / m_line_size) % m_num_sets;
-        addr_t offset = req->m_addr % m_line_size;
-        addr_t wb_req_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
+        // addr_t offset = req->m_addr % m_line_size;
+        // addr_t wb_req_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
+        addr_t wb_req_addr = get_evicted_addr();
         mem_req_s* wb_req = new mem_req_s(wb_req_addr, REQ_WB);
         wb_req->m_id = 424; // WB request from L1 to L2
         wb_req->m_in_cycle = m_cycle;
@@ -308,9 +309,11 @@ void cache_c::process_fill_queue() {
       // if dirty victim has evicted, then write-back to MEM
       if (get_is_evicted_dirty()) {
         addr_t index = (req->m_addr / m_line_size) % m_num_sets;
-        addr_t offset = req->m_addr % m_line_size;
-        assert(get_evicted_tag() != 0);
-        addr_t wb_req_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
+        // addr_t offset = req->m_addr % m_line_size;
+        // assert(get_evicted_tag() != 0);
+        // addr_t wb_req_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
+        // addr_t wb_req_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size;
+        addr_t wb_req_addr = get_evicted_addr();
         mem_req_s* wb_req = new mem_req_s(wb_req_addr, REQ_WB);
         wb_req->m_id = 4240424; // WB request from L2 to MEM
         wb_req->m_in_cycle = m_cycle;
@@ -336,9 +339,11 @@ void cache_c::process_fill_queue() {
       if (get_is_evicted()) {
         // check whether evicted block is also in L1
         addr_t index = (req->m_addr / m_line_size) % m_num_sets;
-        addr_t offset = req->m_addr % m_line_size;
-        assert(get_evicted_tag() != 0);
-        addr_t evicted_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
+        // addr_t offset = req->m_addr % m_line_size;
+        // assert(get_evicted_tag() != 0);
+        // addr_t evicted_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
+        // addr_t evicted_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size;
+        addr_t evicted_addr = get_evicted_addr();
         bool exist_also_l1 = m_prev_d->cache_base_c::access(evicted_addr, CHECK, false);
 
         // 3. invalidate

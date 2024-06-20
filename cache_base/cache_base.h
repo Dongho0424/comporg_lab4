@@ -57,15 +57,17 @@ public:
   cache_base_c(std::string name, int num_set, int assoc, int line_size);
   ~cache_base_c();
 
+  friend class cache_c;
+
   bool access(addr_t address, int access_type, bool is_fill);
   void fill_1(cache_set_c* set, int hit_index);
-  void fill_2(cache_set_c* set, int access_type, int tag);
+  void fill_2(cache_set_c* set, int access_type, int tag, int set_index);
   void print_stats();
   void dump_tag_store(bool is_file);  // false: dump to stdout, true: dump to a file
 
   bool get_is_evicted() { return m_is_evicted; }
   bool get_is_evicted_dirty() { return m_is_evicted_dirty; }
-  addr_t get_evicted_tag() { return m_evicted_tag; }
+  addr_t get_evicted_addr() { return m_evicted_addr; }
   int m_num_sets;         // number of sets
   int m_line_size;        // cache line size
 
@@ -84,7 +86,7 @@ private:
 
   // for evicted cache line
   bool m_is_evicted_dirty;
-  addr_t m_evicted_tag;
+  addr_t m_evicted_addr;
 
   // for back inv
   bool m_is_evicted;

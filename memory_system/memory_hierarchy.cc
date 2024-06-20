@@ -45,10 +45,10 @@ memory_hierarchy_c::memory_hierarchy_c(config_c& config) {
     assert(m_dram && "main memory is not instantiated");
     assert(m_l1u_cache && "l1u is not instantiated");
     assert(m_l2_cache && "l2 is not instantiated");
-    m_dram->set_done_func([&](mem_req_s *req) { 
-      // m_l1u_cache->fill(req); 
-      m_l2_cache->fill(req); 
-    }); 
+    // m_dram->set_done_func([&](mem_req_s *req) { 
+    //   // m_l1u_cache->fill(req); 
+    //   m_l2_cache->fill(req); 
+    // }); 
     // m_l2_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
     m_l1u_cache->set_done_func(std::bind(&memory_hierarchy_c::push_done_req, this, std::placeholders::_1)); 
   }
