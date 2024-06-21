@@ -51,7 +51,7 @@ public:
   queue_c* m_in_flight_wb_queue;  ///< in-flight write-back queue
   counter m_cycle;                ///< clock cycle                         
 
-  void back_inv(addr_t back_inv_addr);
+  void back_inv(addr_t back_inv_addr, std::string cache_info);
 private:
   memory_hierarchy_c* m_mm;
 

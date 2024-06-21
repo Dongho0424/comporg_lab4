@@ -162,7 +162,12 @@ void cache_c::process_in_queue() {
       done_func(req);
     } else if (m_level == MEM_L2) {
       req->m_dirty = false;
-      m_prev_d->fill(req);
+      if (req->m_type == REQ_DFETCH || req->m_type == REQ_DSTORE) {
+        m_prev_d->fill(req);
+      }
+      else if (req->m_type == REQ_IFETCH) {
+        m_prev_i->fill(req);
+      }
     }
   }
   // 3. Read(IF) or Write Miss => out_queue
@@ -262,6 +267,9 @@ void cache_c::process_fill_queue() {
       cache_base_c::access(req->m_addr, req->m_type, true);
       // if dirty victim has evicted, then write-back to L2
       if (get_is_evicted_dirty()) {
+        // all L1I cache entry must be clean. 
+        assert (req->m_type != REQ_IFETCH);
+
         // mem_req_s* wb_req = new
         addr_t index = (req->m_addr / m_line_size) % m_num_sets;
         // addr_t offset = req->m_addr % m_line_size;
@@ -297,8 +305,14 @@ void cache_c::process_fill_queue() {
       // if (req->m_is_write_miss) {
       //   std::cout<<"L2 fill_2, write miss"<<std::endl;
       // }
+
       // First of all, forward to L1 
-      m_prev_d->fill(req);
+      if (req->m_type == REQ_DFETCH || req->m_type == REQ_DSTORE) {
+        m_prev_d->fill(req);
+      }
+      else if (req->m_type == REQ_IFETCH) {
+        m_prev_i->fill(req);
+      }
 
       // Write miss -> read
       // others -> others
@@ -308,11 +322,7 @@ void cache_c::process_fill_queue() {
 
       // if dirty victim has evicted, then write-back to MEM
       if (get_is_evicted_dirty()) {
-        addr_t index = (req->m_addr / m_line_size) % m_num_sets;
-        // addr_t offset = req->m_addr % m_line_size;
-        // assert(get_evicted_tag() != 0);
-        // addr_t wb_req_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
-        // addr_t wb_req_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size;
+
         addr_t wb_req_addr = get_evicted_addr();
         mem_req_s* wb_req = new mem_req_s(wb_req_addr, REQ_WB);
         wb_req->m_id = 4240424; // WB request from L2 to MEM
@@ -338,17 +348,17 @@ void cache_c::process_fill_queue() {
        */
       if (get_is_evicted()) {
         // check whether evicted block is also in L1
-        addr_t index = (req->m_addr / m_line_size) % m_num_sets;
-        // addr_t offset = req->m_addr % m_line_size;
-        // assert(get_evicted_tag() != 0);
-        // addr_t evicted_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size + offset;
-        // addr_t evicted_addr = get_evicted_tag() * m_num_sets * m_line_size + index * m_line_size;
         addr_t evicted_addr = get_evicted_addr();
-        bool exist_also_l1 = m_prev_d->cache_base_c::access(evicted_addr, CHECK, false);
+        bool exist_also_l1d = m_prev_d->cache_base_c::access(evicted_addr, CHECK, false);
+        bool exist_also_l1i = m_prev_i->cache_base_c::access(evicted_addr, CHECK, false);
 
-        // 3. invalidate
-        if (exist_also_l1) {
-          m_prev_d->back_inv(evicted_addr);
+        // 3. invalidate - L1D
+        if (exist_also_l1d) {
+          m_prev_d->back_inv(evicted_addr, "L1D");
+        }
+        // 3. invalidate - L1I
+        if (exist_also_l1i) {
+          m_prev_i->back_inv(evicted_addr, "L1I");
         }
       }
     }
@@ -363,8 +373,9 @@ void cache_c::process_fill_queue() {
  * 4. check if invalidated block is dirty
  * 4-1. if dirty, write-back to memory directly
  */
-void cache_c::back_inv(addr_t back_inv_addr) {
+void cache_c::back_inv(addr_t back_inv_addr, std::string cache_info) {
   assert (m_level == MEM_L1);
+  assert (cache_info == "L1D" || cache_info == "L1I");
 
   ++m_num_backinvals;
 
@@ -385,6 +396,11 @@ void cache_c::back_inv(addr_t back_inv_addr) {
     }
   }
 
+  // all L1I cache entry must be clean. 
+  if (cache_info == "L1I") {
+    assert (!set->m_entry[hit_index].m_dirty);
+  }
+  
   if (hit) {
     // if dirty, write back to memory directly
     if (set->m_entry[hit_index].m_dirty) {
