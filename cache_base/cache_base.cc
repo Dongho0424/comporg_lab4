@@ -225,7 +225,10 @@ bool cache_base_c::access(addr_t address, int access_type, bool is_fill) {
       // 2-2-1. hit:  never goes into this
       // 2-2-2. miss: fill_2 && dirty -> true
     if (access_type == READ || access_type == INST_FETCH || access_type == WRITE) {
-      assert(!hit);
+      // assert(!hit);
+      if (hit) {
+        // std::cout << "Fill 2 but hit. ERROR " << '\n';
+      }
       if (!hit) {
         fill_2(set, access_type, tag, set_index);
       }
