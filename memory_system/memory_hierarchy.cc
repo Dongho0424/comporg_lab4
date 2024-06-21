@@ -154,7 +154,6 @@ mem_req_s* memory_hierarchy_c::create_mem_req(addr_t address, int access_type) {
   req->m_rdy_cycle = m_cycle;
   req->m_done = false;
   req->m_dirty = false;
-  req->m_is_write_miss = false;
 
   // DEBUG("[MEM_H] Create REQ #%d %8lx @ %ld\n", req->m_id, req->m_addr, m_cycle);
   return req;

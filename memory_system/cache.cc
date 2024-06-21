@@ -126,14 +126,13 @@ void cache_c::process_in_queue() {
 
   m_in_queue->pop(req);
   
-  // Access the cache
-  // If Write miss at upper cache (req->m_is_write_miss = true),
-  // we have to access this cache as "Read" Request
-  if (req->m_type != WRITE && req->m_is_write_miss) {
-    std::cout << "write miss error" << std::endl;
+  int access_type = req->m_type; 
+  
+  // Write Miss at L2, then read access
+  if(m_level == MEM_L2 && access_type == WRITE){
+    access_type = READ;
   }
-  int req_type = req->m_is_write_miss ? READ : req->m_type;
-  bool hit = cache_base_c::access(req->m_addr, req_type, false);
+  bool hit = cache_base_c::access(req->m_addr, access_type, false);
 
   // 1. Read(IF) Hit
   // 1.1 (L1 Cache)   => Done
@@ -143,26 +142,6 @@ void cache_c::process_in_queue() {
 
   // Cache hit
   if (hit) {
-    // // 1. Read(IF) Hit
-    // if (req_type == REQ_IFETCH || req_type == REQ_DFETCH) {
-    //   // 1.1 (L1 Cache) Read Hit => Done
-    //   if (m_level == MEM_L1) {
-    //     // Done
-    //     done_func(req);
-    //   }
-    //   // 1.2 (L2) => upper level fill queue
-    //   else if (m_level == MEM_L2){
-    //     // Fill the upper level cache
-    //     // Although req is dirty, send as clean to L1
-    //     req->m_dirty = false;
-    //     m_prev_d->fill(req);
-    //   }
-    // } 
-    // // 2. Write Hit => Done
-    // else if (req_type == REQ_DSTORE) {
-    //   assert(m_level == MEM_L1);
-    //   done_func(req);
-    // } 
     if (m_level == MEM_L1) {
       done_func(req);
     } else if (m_level == MEM_L2) {
@@ -212,19 +191,10 @@ void cache_c::process_out_queue() {
     } else if (req->m_type == REQ_DFETCH || req->m_type == REQ_DSTORE || req->m_type == REQ_IFETCH ) { // miss
     // access request to lower level  
       if (m_level == MEM_L1) {
-        // If Write miss, (The fact that req is in out_queue means it is a miss)
-        // move to lower input queue as "Read" Request
-        req->m_is_write_miss = (req->m_type == REQ_DSTORE);
-
+        
         m_next->access(req);
       } else if (m_level == MEM_L2) {
-        if (req->m_type == REQ_DSTORE && (!req->m_is_write_miss)) {
-          assert(false && "L2 Write Miss but type m_is_write_miss false");
-          std::cout << "L2 Write Miss but type m_is_write_miss false" << std::endl;
-        }
-        // if (req->m_is_write_miss) {
-          // std::cout << "L2 process_out_queue: Write Miss and access to memory" << std::endl;
-        // }
+        
         m_memory->access(req);
       }
     }
@@ -290,7 +260,6 @@ void cache_c::process_fill_queue() {
         wb_req->m_rdy_cycle = m_cycle;
         wb_req->m_done = false;
         wb_req->m_dirty = true;
-        wb_req->m_is_write_miss = false;
 
         m_wb_queue->push(wb_req);
         m_next->m_in_flight_wb_queue->push(wb_req);
@@ -299,22 +268,7 @@ void cache_c::process_fill_queue() {
       done_func(req);
 
     } else if (m_level == MEM_L2) { // Read(Write) Miss and filled from memory
-      // std::cout << req->m_type << std::endl;
-      // std::cout << req->m_is_write_miss << std::endl;
-      if (req->m_type != WRITE && req->m_is_write_miss) {
-        std::cout << "write miss error" << std::endl;
-      }
-      // assert(req->m_type == WRITE && (!req->m_is_write_miss) && "If L2 fill_2, always write miss when write");
-      if (req->m_is_write_miss ) {
-        if (req->m_type != WRITE) {
-          std::cout<<"If L2 fill_2, always write miss when write"<<std::endl;
-          assert(false);
-        }
-      }
-      // if (req->m_is_write_miss) {
-      //   std::cout<<"L2 fill_2, write miss"<<std::endl;
-      // }
-
+      
       // First of all, forward to L1 
       if (req->m_type == REQ_DFETCH || req->m_type == REQ_DSTORE) {
         m_prev_d->fill(req);
@@ -323,10 +277,12 @@ void cache_c::process_fill_queue() {
         m_prev_i->fill(req);
       }
 
-      // Write miss -> read
-      // others -> others
-      // int l2_req_type = (req->m_is_write_miss) ? READ : req->m_type;
-
+      int access_type = req->m_type; 
+  
+      // Write Miss Fill at L2, then read access
+      if(access_type == WRITE){
+        access_type = READ;
+      }
       cache_base_c::access(req->m_addr, READ, true);
 
       // if dirty victim has evicted, then write-back to MEM
@@ -339,7 +295,6 @@ void cache_c::process_fill_queue() {
         wb_req->m_rdy_cycle = m_cycle;
         wb_req->m_done = false;
         wb_req->m_dirty = true;
-        wb_req->m_is_write_miss = false;
 
         m_wb_queue->push(wb_req);
         m_memory->m_in_flight_wb_queue->push(wb_req);
@@ -422,7 +377,6 @@ void cache_c::back_inv(addr_t back_inv_addr, std::string cache_info) {
       mem_wb_req->m_rdy_cycle = m_cycle;
       mem_wb_req->m_done = false;
       mem_wb_req->m_dirty = true;
-      mem_wb_req->m_is_write_miss = false;
       m_memory->access(mem_wb_req);
     }
 
