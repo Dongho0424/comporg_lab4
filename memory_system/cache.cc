@@ -42,6 +42,7 @@ cache_c::~cache_c() {
   delete m_fill_queue;
   delete m_wb_queue;
   delete m_in_flight_wb_queue;
+  delete m_mm;
 }
 
 /** 
@@ -112,52 +113,124 @@ void cache_c::process_in_queue() {
   // if (m_in_queue->empty())
     // return;
   while (!m_in_queue->empty()) { 
-  // auto it = m_in_queue->m_entry.begin();
-  // if (it == m_in_queue->m_entry.end()) return;
-  // mem_req_s* req = (*it);
-  mem_req_s* req = m_in_queue->m_entry.front();
+    // auto it = m_in_queue->m_entry.begin();
+    // if (it == m_in_queue->m_entry.end()) return;
+    // mem_req_s* req = (*it);
+    mem_req_s* req = m_in_queue->m_entry.front();
 
 
-  // before ready cycle
-  // yet finishing access() function
-  if (req->m_rdy_cycle > m_cycle) {
-    return;
-  }
+    // before ready cycle
+    // yet finishing access() function
+    if (req->m_rdy_cycle > m_cycle) {
+      return;
+    }
 
-  m_in_queue->pop(req);
-  
-  int access_type = req->m_type; 
-  
-  // Write Miss at L2, then read access
-  if(m_level == MEM_L2 && access_type == WRITE){
-    access_type = READ;
-  }
-  bool hit = cache_base_c::access(req->m_addr, access_type, false);
+    m_in_queue->pop(req);
+    
+    int access_type = req->m_type; 
+    
+    // Write Miss at L2, then read access
+    if(m_level == MEM_L2 && access_type == WRITE){
+      access_type = READ;
+    }
+    bool hit = cache_base_c::access(req->m_addr, access_type, false);
 
-  // 1. Read(IF) Hit
-  // 1.1 (L1 Cache)   => Done
-  // 1.2 (L2) => upper level fill queue
-  // 2. Write Hit => Done
-  // 3. Read(IF) or Write Miss => out_queue
+    // 1. Read(IF) Hit
+    // 1.1 (L1 Cache)   => Done
+    // 1.2 (L2) => upper level fill queue
+    // 2. Write Hit => Done
+    // 3. Read(IF) or Write Miss => out_queue
 
-  // Cache hit
-  if (hit) {
-    if (m_level == MEM_L1) {
-      done_func(req);
-    } else if (m_level == MEM_L2) {
-      req->m_dirty = false;
-      if (req->m_type == REQ_DFETCH || req->m_type == REQ_DSTORE) {
-        m_prev_d->fill(req);
-      }
-      else if (req->m_type == REQ_IFETCH) {
-        m_prev_i->fill(req);
+    // Cache hit
+    if (hit) {
+      if (m_level == MEM_L1) {
+        done_func(req);
+      } else if (m_level == MEM_L2) {
+        req->m_dirty = false;
+        if (req->m_type == REQ_DFETCH || req->m_type == REQ_DSTORE) {
+          m_prev_d->fill(req);
+        }
+        else if (req->m_type == REQ_IFETCH) {
+          m_prev_i->fill(req);
+        }
       }
     }
-  }
-  // 3. Read(IF) or Write Miss => out_queue
-  else {
-    m_out_queue->push(req);
-  }
+    // 3. Read(IF) or Write Miss => out_queue
+    /** 
+      * When cases of misses at L1 cache out_queue, check current req already exists in in_flight_reqs
+      * If so, handling in order to get rid of duplicated requests
+      * Both req of in_flight_reqs and current is miss and we have to mark whether miss or not
+      * | in_flight_reqs | current | handling 
+      * 1. R | R | common
+      * 2. I | I | common
+      * 3. W | R | common 
+      * 4. W | W | common, (1) L1 num_writes ++
+      * 5. R | W | common, (1) L1 num_writes ++, (2) change access_type R -> W of in_flight_reqs
+      * < common >
+      * 1. do not forward out_queue
+      * 2. delete req
+      * 3. L1 num_hits++
+      * 4. do not change LRU
+      */ 
+    else {
+      if (m_level == MEM_L1){
+        // above situation occurs.
+        assert (m_mm != nullptr);
+        if (!m_mm->m_in_flight_reqs.empty()) {
+          if (m_mm->is_repeated_miss_req(req)) {
+          
+            // common 3: L1 num_hits++
+            // common 4: do not change LRU
+            m_num_hits++;
+
+            int access_type_of_in_flight_req = m_mm->get_access_type_of_in_flight_req(req);
+            if ( (access_type_of_in_flight_req == READ && req->m_type == READ) ||
+                 (access_type_of_in_flight_req == INST_FETCH && req->m_type == INST_FETCH) ||
+                 (access_type_of_in_flight_req == WRITE && req->m_type == READ)
+            ) {
+              // 1. R | R
+              // 2. I | I
+              // 3. W | R
+              // -> only common things
+            } 
+            else if ( (access_type_of_in_flight_req == WRITE && req->m_type == WRITE) ) {
+              // 4. W | W
+              m_num_writes++;
+            } 
+            else if ( (access_type_of_in_flight_req == READ && req->m_type == WRITE) ) {
+              // 5. R | W
+              m_num_writes++;
+              m_mm->set_access_type_of_in_flight_req(req, WRITE);
+            }
+            else {
+              assert(false);
+            }
+
+            // common 2: delete req
+            done_func(req);
+            // delete req;
+
+            // commmon 1: do not forward out_queue
+            continue;
+          }
+          // Nope. Just pure read or write miss
+          // Forward to out_queue with missing mark.
+          else {
+            req->m_is_miss = true;
+            m_out_queue->push(req);
+          }
+        }
+        // Nope. Just pure read or write miss
+        // Forward to out_queue with missing mark.
+        else {
+          req->m_is_miss = true;
+          m_out_queue->push(req);
+        }
+      }
+      else { // L2 Cache: just forwarding to out_queue
+        m_out_queue->push(req);
+      }
+    }
   }
 } 
 
@@ -283,7 +356,7 @@ void cache_c::process_fill_queue() {
       if(access_type == WRITE){
         access_type = READ;
       }
-      cache_base_c::access(req->m_addr, READ, true);
+      cache_base_c::access(req->m_addr, access_type, true);
 
       // if dirty victim has evicted, then write-back to MEM
       if (get_is_evicted_dirty()) {

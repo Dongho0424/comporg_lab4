@@ -85,6 +85,11 @@ void memory_hierarchy_c::init(config_c& config) {
   int l2_num_sets = config.get_l2_size() / (config.get_l2_assoc() * config.get_l2_line_size());
   m_l2_cache = new cache_c("L2", MEM_L2, l2_num_sets, config.get_l2_assoc(), config.get_l2_line_size(), config.get_l2_latency());
 
+  (*m_l1d_cache).m_mm = this;
+  (*m_l1u_cache).m_mm = this;
+  (*m_l1i_cache).m_mm = this;
+  (*m_l2_cache).m_mm = this;
+
   if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::DRAM_ONLY)) {
     m_dram->configure_neighbors(nullptr);
   } else if (config.get_mem_hierarchy() == static_cast<int>(Hierarchy::SINGLE_LEVEL)) {

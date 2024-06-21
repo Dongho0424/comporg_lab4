@@ -52,8 +52,9 @@ public:
   counter m_cycle;                ///< clock cycle                         
 
   void back_inv(addr_t back_inv_addr, std::string cache_info);
-private:
+  
   memory_hierarchy_c* m_mm;
+private:
 
   int m_id;                       ///< cache id
   int m_level;                    ///< cache level (L1, L2) 

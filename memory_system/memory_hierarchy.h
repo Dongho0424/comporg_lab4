@@ -31,6 +31,60 @@ public:
   void run_a_cycle();                          ///< tick a cycle
 
   config_c m_config;
+  
+  friend class cache_c;
+
+  /// @brief if the request is repeated and miss, return true
+  /// @param req 
+  /// @return 
+  // bool is_repeated_miss_req(mem_req_s* req) {
+  //   for (auto& r : m_in_flight_reqs) {
+  //     if (r->m_addr == req->m_addr && r->m_is_miss) {
+  //       return true;
+  //     }
+  //   }
+  //   return false;
+  // }
+  bool is_repeated_miss_req(mem_req_s* req) {
+    auto it = std::find_if(m_in_flight_reqs.begin(), m_in_flight_reqs.end(),
+                           [&](mem_req_s *r) { return r->m_addr == req->m_addr && r->m_is_miss; });
+    return it != m_in_flight_reqs.end();
+  }
+
+  /// @brief If the req is repeated and miss, return access type
+  /// @param req 
+  /// @return 
+  // int get_access_type_of_in_flight_req(mem_req_s* req) {
+  //   for (auto& r : m_in_flight_reqs) {
+  //     if (r->m_addr == req->m_addr && r->m_is_miss) {
+  //       return r->m_type;
+  //     }
+  //   }
+  //   return -1;
+  // }
+  int get_access_type_of_in_flight_req(mem_req_s* req) {
+    auto it = std::find_if(m_in_flight_reqs.begin(), m_in_flight_reqs.end(),
+                           [&](mem_req_s *r) { return r->m_addr == req->m_addr && r->m_is_miss; });
+    if (it != m_in_flight_reqs.end()) {
+        return (*it)->m_type;
+    }
+    return -1; // Return -1 or another appropriate value to indicate not found/error
+  }
+
+  // void set_access_type_of_in_flight_req(mem_req_s* req, int access_type) {
+  //   for (auto& r : m_in_flight_reqs) {
+  //     if (r->m_addr == req->m_addr && r->m_is_miss) {
+  //       r->m_type = access_type;
+  //     }
+  //   }
+  // }
+  void set_access_type_of_in_flight_req(mem_req_s* req, int access_type) {
+    auto it = std::find_if(m_in_flight_reqs.begin(), m_in_flight_reqs.end(),
+                           [&](mem_req_s *r) { return r->m_addr == req->m_addr && r->m_is_miss; });
+    if (it != m_in_flight_reqs.end()) {
+        (*it)->m_type = access_type;
+    }
+  }
                                                
 private:
   mem_req_s* create_mem_req(addr_t address, int access_type);
