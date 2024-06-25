@@ -257,7 +257,6 @@ void cache_c::process_out_queue() {
       if (m_level == MEM_L1) {
         m_next->fill(req);
       } else if (m_level == MEM_L2) {
-        // FIXME: WB to dram is using access()?
         m_memory->access(req);
       }
 
@@ -311,7 +310,6 @@ void cache_c::process_fill_queue() {
     cache_base_c::access(req->m_addr, WRITE_BACK, true);
     // Pop WB request from uppder level m_in_flight_wb_queue 
     m_in_flight_wb_queue->pop(req);
-    // FIXME: L2에서 WB하고 자기꺼 pop, dram은 알아서 해주는 거겠지?
   }
   // Fill_2
   else {
