@@ -36,15 +36,14 @@ struct mem_req_s {
   bool     m_done;       ///< request done? (data returned?)
   bool     m_dirty;      
 
-  // If Write miss,
-  // move to lower input queue as "Read" Request
-  // This is a flag indicating for Write Miss. 
-  bool     m_is_write_miss; 
+  // If miss at L1 cache, mark as miss
+  bool     m_is_miss = false; 
   
   mem_req_s(addr_t addr, int access_type) {
     m_addr = addr;
     m_type = access_type;
     m_size = 0;
+    m_is_miss = false;
   };
 };
 
